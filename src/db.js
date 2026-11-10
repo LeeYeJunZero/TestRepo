@@ -38,6 +38,18 @@ db.exec(`
   CREATE INDEX IF NOT EXISTS idx_visits_created ON visits(created_at);
   CREATE INDEX IF NOT EXISTS idx_visits_site_created ON visits(site, created_at);
 
+  -- 클릭 이벤트 (버튼·링크). 클릭률 = 클릭 수 / 조회수(PV)
+  CREATE TABLE IF NOT EXISTS clicks (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    site       TEXT NOT NULL,
+    label      TEXT,
+    href       TEXT,
+    visitor    TEXT,
+    ip         TEXT,
+    created_at TEXT NOT NULL DEFAULT (${NOW})
+  );
+  CREATE INDEX IF NOT EXISTS idx_clicks_site ON clicks(site, created_at);
+
   CREATE TABLE IF NOT EXISTS inquiries (
     id         INTEGER PRIMARY KEY AUTOINCREMENT,
     site       TEXT NOT NULL,
@@ -76,6 +88,9 @@ export const saveSite = (key, data, status) => saveStmt.run(JSON.stringify(data)
 
 export const insertVisit = db.prepare(
   'INSERT INTO visits (site, path, ip, ua, referrer, visitor, mobile, bot) VALUES (?, ?, ?, ?, ?, ?, ?, ?)'
+);
+export const insertClick = db.prepare(
+  'INSERT INTO clicks (site, label, href, visitor, ip) VALUES (?, ?, ?, ?, ?)'
 );
 export const insertInquiry = db.prepare(
   'INSERT INTO inquiries (site, name, phone, grade, subject, message, ip) VALUES (?, ?, ?, ?, ?, ?, ?)'

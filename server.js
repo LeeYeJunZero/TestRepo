@@ -2,7 +2,7 @@ import express from 'express';
 import crypto from 'node:crypto';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { db, NOW, getSite, listSites, saveSite, insertVisit, insertInquiry } from './src/db.js';
+import { db, getSite, listSites, saveSite, insertVisit, insertClick, insertInquiry } from './src/db.js';
 import { renderSite, renderMaintenance, renderPortal } from './src/render.js';
 import { SITE_KEYS, TEXT_FIELDS, LIST_FIELDS, STATUSES } from './src/defaults.js';
 
@@ -48,9 +48,9 @@ app.use((req, res, next) => {
   next();
 });
 
-// ───────────── CORS: GitHub Pages 등 외부 정적 사이트 → 공개 API 만 허용 ─────────────
+// ───────────── CORS: GitHub Pages 등 외부 정적 사이트 → 방문 비콘만 허용 ─────────────
 const CORS_ORIGINS = new Set((process.env.CORS_ORIGINS || '').split(',').map((s) => s.trim().replace(/\/$/, '')).filter(Boolean));
-app.use(['/api/inquiry', '/api/track'], (req, res, next) => {
+app.use(['/api/track', '/api/click'], (req, res, next) => {
   const origin = req.get('origin');
   if (origin && CORS_ORIGINS.has(origin)) {
     res.set({ 'Access-Control-Allow-Origin': origin, 'Vary': 'Origin', 'Access-Control-Allow-Methods': 'POST, OPTIONS', 'Access-Control-Allow-Headers': 'Content-Type', 'Access-Control-Max-Age': '86400' });
@@ -134,6 +134,16 @@ app.post('/api/track', rateLimit('track', 120, 60_000), (req, res) => {
   const vid = /^[a-f0-9]{32}$/.test(b.vid || '') ? b.vid : crypto.randomBytes(16).toString('hex');
   const origin = req.get('origin') || '';
   recordVisit(req, b.site, (origin ? origin.replace(/^https?:\/\//, '') : '') + clip(b.path, 250), b.referrer, vid);
+  res.status(204).end();
+});
+
+// ───────────── 공개 API: 클릭 이벤트 (서버 모드·정적 모드 공통) ─────────────
+app.post('/api/click', rateLimit('click', 300, 60_000), (req, res) => {
+  const b = req.body || {};
+  if (!SITE_KEYS.includes(b.site)) return res.status(400).json({ error: 'bad site' });
+  if (BOT_RE.test(req.get('user-agent') || '')) return res.status(204).end();
+  const vid = /^[a-f0-9]{32}$/.test(b.vid || '') ? b.vid : (cookies(req).vid || '');
+  insertClick.run(b.site, clip(b.label, 60), clip(b.href, 200), vid, req.ip || '');
   res.status(204).end();
 });
 
@@ -251,8 +261,32 @@ admin.get('/visits', (req, res) => {
 });
 admin.post('/visits/purge', (req, res) => {
   const days = Math.max(parseInt(req.body?.olderThanDays) || 0, 1);
-  const r = db.prepare(`DELETE FROM visits WHERE created_at < datetime('now','+9 hours','-${days} days')`).run();
+  const cut = `datetime('now','+9 hours','-${days} days')`;
+  const r = db.prepare(`DELETE FROM visits WHERE created_at < ${cut}`).run();
+  db.prepare(`DELETE FROM clicks WHERE created_at < ${cut}`).run();
   res.json({ ok: true, deleted: Number(r.changes) });
+});
+
+// ── 누적 순위: 사이트별 조회수 · 방문자 · 클릭 수 · 클릭률(클릭 ÷ 조회수)
+admin.get('/ranking', (req, res) => {
+  const views = db.prepare(`SELECT site, COUNT(*) pv, COUNT(DISTINCT visitor) uv, MIN(created_at) first_at, MAX(created_at) last_at
+    FROM visits WHERE bot = 0 GROUP BY site`).all();
+  const clicks = db.prepare(`SELECT site, COUNT(*) clicks, COUNT(DISTINCT visitor) clickers FROM clicks GROUP BY site`).all();
+  const labels = db.prepare(`SELECT site, label, COUNT(*) n FROM clicks GROUP BY site, label ORDER BY n DESC`).all();
+  const rows = SITE_KEYS.map((site) => {
+    const v = views.find((x) => x.site === site) || {};
+    const c = clicks.find((x) => x.site === site) || {};
+    const pv = v.pv || 0, cl = c.clicks || 0;
+    return {
+      site, pv, uv: v.uv || 0, clicks: cl, clickers: c.clickers || 0,
+      ctr: pv ? Math.round((cl / pv) * 1000) / 10 : 0,
+      firstAt: v.first_at || null, lastAt: v.last_at || null,
+      topClicks: labels.filter((x) => x.site === site).slice(0, 5).map(({ label, n }) => ({ label, n }))
+    };
+  }).sort((a, b) => b.pv - a.pv || b.ctr - a.ctr);
+  rows.forEach((r, i) => (r.rank = i + 1));
+  const best = (k) => rows.reduce((a, b) => (b[k] > a[k] ? b : a), rows[0]);
+  res.json({ rows, mostViewed: rows[0]?.pv ? rows[0].site : null, bestCtr: best('ctr')?.ctr ? best('ctr').site : null });
 });
 
 // ── 상담 신청

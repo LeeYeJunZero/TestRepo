@@ -84,7 +84,27 @@
     loadDash().catch((e) => toast(e.message, true));
   });
 
+  async function loadRanking() {
+    const r = await api('/ranking');
+    const maxPv = Math.max(1, ...r.rows.map((x) => x.pv));
+    const row = (k) => r.rows.find((x) => x.site === k);
+    $('#rankHl').innerHTML = `
+      <div><span class="trophy">👑</span><div><span>최다 조회 사이트</span><b>${r.mostViewed ? `${esc(SITE_NAME[r.mostViewed])} · ${row(r.mostViewed).pv.toLocaleString()}회` : '아직 기록 없음'}</b></div></div>
+      <div><span class="trophy">🎯</span><div><span>최고 클릭률 사이트</span><b>${r.bestCtr ? `${esc(SITE_NAME[r.bestCtr])} · ${row(r.bestCtr).ctr}%` : '아직 기록 없음'}</b></div></div>`;
+    $('#rankTable').innerHTML = `<thead><tr><th>순위</th><th>사이트</th><th class="num">조회수</th><th class="num">방문자</th><th class="num">클릭 수</th><th class="num">클릭률</th><th>많이 클릭된 항목</th><th>최근 접속</th></tr></thead><tbody>
+      ${r.rows.map((x) => `<tr>
+        <td><span class="rank-no ${x.rank === 1 && x.pv ? 'r1' : ''}">${x.rank}</span></td>
+        <td>${tag(x.site)}<div class="bar"><i style="width:${(x.pv / maxPv) * 100}%;background:${SITE_COLOR[x.site]}"></i></div></td>
+        <td class="num"><b>${x.pv.toLocaleString()}</b></td>
+        <td class="num">${x.uv.toLocaleString()}</td>
+        <td class="num">${x.clicks.toLocaleString()}</td>
+        <td class="num"><b>${x.ctr}%</b></td>
+        <td><div class="top-clicks">${x.topClicks.map((t) => `<span class="pill">${esc(t.label || '(이름 없음)')} ${t.n}</span>`).join('') || '<span class="muted">–</span>'}</div></td>
+        <td>${x.lastAt ? esc(x.lastAt.slice(5, 16)) : '–'}</td></tr>`).join('')}</tbody>`;
+  }
+
   async function loadDash() {
+    loadRanking().catch((e) => toast(e.message, true));
     const s = await api('/stats?days=' + days);
     const by = Object.fromEntries(s.perSite.map((r) => [r.site, r]));
     const sum = (k) => s.perSite.reduce((a, r) => a + (r[k] || 0), 0);
@@ -181,12 +201,12 @@
   async function loadVisits() {
     const q = new URLSearchParams({ limit: V_LIMIT, offset: vOffset, site: $('#vSite').value, q: $('#vQ').value.trim(), bots: $('#vBots').checked ? '1' : '' });
     const { total, rows } = await api('/visits?' + q);
-    $('#vTable').innerHTML = `<thead><tr><th>시각 (KST)</th><th>사이트</th><th>경로</th><th>IP</th><th>유입경로</th><th>기기</th><th>브라우저</th></tr></thead><tbody>
+    $('#vTable').innerHTML = `<thead><tr><th>날짜</th><th>시각 (KST)</th><th>접속 사이트</th><th>경로</th><th>IP</th><th>유입경로</th><th>기기</th><th>브라우저</th></tr></thead><tbody>
       ${rows.length ? rows.map((r) => `<tr>
-        <td>${esc(r.created_at)}</td><td>${tag(r.site)}</td><td>${esc(r.path)}</td><td>${esc(r.ip)}</td>
+        <td>${esc(r.created_at.slice(0, 10))}</td><td class="time-big">${esc(r.created_at.slice(11, 16))}</td><td>${tag(r.site)}</td><td>${esc(r.path)}</td><td>${esc(r.ip)}</td>
         <td class="ref" title="${esc(r.referrer)}">${esc(r.referrer) || '<span class="pill">직접</span>'}</td>
         <td>${r.bot ? '<span class="pill bot">봇</span>' : r.mobile ? '<span class="pill mobile">모바일</span>' : '<span class="pill">PC</span>'}</td>
-        <td class="ua" title="${esc(r.ua)}">${esc(r.ua)}</td></tr>`).join('') : '<tr><td colspan="7" class="empty">기록이 없습니다</td></tr>'}</tbody>`;
+        <td class="ua" title="${esc(r.ua)}">${esc(r.ua)}</td></tr>`).join('') : '<tr><td colspan="8" class="empty">기록이 없습니다</td></tr>'}</tbody>`;
     $('#vInfo').textContent = total ? `${vOffset + 1}–${Math.min(vOffset + V_LIMIT, total)} / 총 ${total.toLocaleString()}건` : '0건';
     $('#vPrev').disabled = vOffset === 0;
     $('#vNext').disabled = vOffset + V_LIMIT >= total;

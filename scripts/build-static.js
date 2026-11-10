@@ -10,7 +10,10 @@ import { renderSite, renderMaintenance, renderPortal } from '../src/render.js';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const out = path.join(root, 'dist');
-const apiBase = (process.env.STATIC_API_BASE || '').replace(/\/$/, '');
+// API 주소 우선순위: STATIC_API_BASE 환경변수 → pages.config.json (npm run tunnel 이 자동 갱신)
+let fileCfg = {};
+try { fileCfg = JSON.parse(fs.readFileSync(path.join(root, 'pages.config.json'), 'utf8')); } catch { /* 없음 */ }
+const apiBase = (process.env.STATIC_API_BASE || fileCfg.apiBase || '').replace(/\/$/, '');
 
 let sites;
 if (process.argv.includes('--from-db')) {

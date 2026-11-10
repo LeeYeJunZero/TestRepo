@@ -42,8 +42,26 @@ deploy/                Caddy, systemd, 서버 설치 스크립트
 - 저장소 Settings → Pages → Source: **GitHub Actions**
 - 실서버(API)가 준비되면 Settings → Secrets and variables → Actions → **Variables** 에
   `STATIC_API_BASE=https://admin.도메인` 을 추가하고, 서버 `.env` 의 `CORS_ORIGINS=https://<계정>.github.io` 를 설정하면
-  GitHub Pages 사이트의 방문 기록·상담 신청도 어드민에 쌓입니다. (미설정 시 미리보기 모드)
+  GitHub Pages 사이트의 접속 기록·클릭도 어드민에 쌓입니다. (상담 폼은 항상 미리보기 모드)
 - 어드민 페이지는 서버·DB가 필요하므로 GitHub Pages 에는 배포되지 않습니다.
+
+### 로컬 PC 로 GitHub Pages 접속 기록 보기 (터널)
+
+GitHub Pages 는 정적 호스팅이라 접속 기록을 받을 서버가 없습니다. 로컬 PC 서버를 Cloudflare 임시 터널로 열어 수집합니다.
+
+```bash
+# 최초 1회: tools/cloudflared.exe 설치 (https://github.com/cloudflare/cloudflared/releases)
+#           .env 에 12자 이상 ADMIN_PASSWORD 설정
+npm run tunnel
+```
+
+1. 로컬 서버 + 터널 시작 → `https://xxxx.trycloudflare.com` 주소 발급
+2. `pages.config.json` 의 `apiBase` 갱신 후 자동 push → 1~2분 뒤 Pages 재배포
+3. GitHub Pages 방문·클릭이 로컬 어드민(`http://localhost:3000/admin/`)에 기록됨
+
+- PC 가 켜져 있고 터널이 실행 중일 때만 수집됩니다.
+- 임시 터널 주소는 실행할 때마다 바뀌므로, 재실행 시 자동으로 다시 push 됩니다.
+- GitHub Pages 의 상담 폼은 항상 미리보기 모드입니다 (접속 기록·클릭만 수집).
 
 ## 배포 2단계 — 실서버 + 가비아 DNS
 

@@ -19,6 +19,21 @@
   }
   const toggle = document.querySelector('.nav-toggle');
 
+  // 클릭 추적 (버튼·링크) → 어드민 클릭률 집계. 서버 모드는 같은 origin, 정적 모드는 API 서버로 전송
+  const CLICK_OK = !IS_STATIC || !!API;
+  document.addEventListener('click', (e) => {
+    if (!CLICK_OK) return;
+    const el = e.target.closest('a, button, summary');
+    if (!el || el.closest('.hp')) return;
+    const label = (el.getAttribute('aria-label') || el.textContent || '').replace(/\s+/g, ' ').trim().slice(0, 60);
+    let vid = '';
+    try { vid = localStorage.getItem('vid') || ''; } catch {}
+    fetch(API + '/api/click', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, keepalive: true,
+      body: JSON.stringify({ site: body.dataset.site, label, href: el.getAttribute('href') || '', vid })
+    }).catch(() => {});
+  }, { capture: true });
+
   // 모바일 메뉴
   toggle?.addEventListener('click', () => {
     const open = nav.classList.toggle('open');
@@ -86,7 +101,8 @@
     if (!data.name.trim()) { msg.textContent = '이름을 입력해 주세요.'; msg.classList.add('err'); form.name.focus(); return; }
     if (!/^[0-9+\-() ]{8,20}$/.test(data.phone.trim())) { msg.textContent = '연락처를 정확히 입력해 주세요.'; msg.classList.add('err'); form.phone.focus(); return; }
     if (!data.agree) { msg.textContent = '개인정보 수집·이용에 동의해 주세요.'; msg.classList.add('err'); return; }
-    if (IS_STATIC && !API) { msg.textContent = '미리보기 사이트입니다. 상담 신청은 정식 사이트에서 가능합니다.'; msg.classList.add('err'); return; }
+    // 정적 호스팅(GitHub Pages)은 접속 기록만 수집하고 상담 신청은 받지 않음
+    if (IS_STATIC) { msg.textContent = '미리보기 사이트입니다. 상담 신청은 정식 사이트에서 가능합니다.'; msg.classList.add('err'); return; }
     btn.disabled = true; btn.textContent = '전송 중…';
     try {
       const res = await fetch(API + '/api/inquiry', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data) });

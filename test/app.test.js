@@ -172,6 +172,39 @@ test('R-10 GitHub Pages 연동: CORS 허용 origin 만 통과, 방문 비콘 기
   assert.equal(a.headers.get('access-control-allow-origin'), null);
 });
 
+test('R-13 누적 순위: 사이트별 조회수·클릭 수·클릭률, 최다 조회/최고 클릭률', async () => {
+  // coding: 조회 3, 클릭 3 → 100%   /  math: 조회는 위에서 1회(+비콘 1) 이상, 클릭 1
+  for (let i = 0; i < 3; i++) await get('/coding/', { 'user-agent': 'Mozilla/5.0 Test' });
+  for (const label of ['무료 상담 신청', '무료 상담 신청', '수업 과정 보기']) {
+    assert.equal((await json('/api/click', 'POST', { site: 'coding', label, href: '#apply' })).status, 204);
+  }
+  assert.equal((await json('/api/click', 'POST', { site: 'math', label: 'FAQ', href: '#faq' }, { origin: ORIGIN })).status, 204);
+  assert.equal((await json('/api/click', 'POST', { site: 'nope', label: 'x' })).status, 400);
+  const r = await (await adm('/ranking')).json();
+  assert.equal(r.rows.length, 3);
+  assert.deepEqual(r.rows.map((x) => x.rank), [1, 2, 3]);
+  for (let i = 1; i < r.rows.length; i++) assert.ok(r.rows[i - 1].pv >= r.rows[i].pv, '조회수 내림차순');
+  const coding = r.rows.find((x) => x.site === 'coding');
+  assert.ok(coding.pv >= 3);
+  assert.equal(coding.clicks, 3);
+  assert.equal(coding.ctr, Math.round((3 / coding.pv) * 1000) / 10);
+  assert.equal(coding.topClicks[0].label, '무료 상담 신청');
+  assert.equal(coding.topClicks[0].n, 2);
+  assert.equal(r.mostViewed, r.rows[0].site);
+  assert.ok(r.bestCtr);
+  // 접속 기록에 시각(시:분)과 사이트가 함께 저장됨
+  const v = await (await adm('/visits?site=coding&limit=1')).json();
+  assert.match(v.rows[0].created_at, /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/);
+  assert.equal(v.rows[0].site, 'coding');
+});
+
+test('R-14 정적 모드: 상담 API 는 CORS 비허용 (접속 기록·클릭만 수집)', async () => {
+  const pre = await fetch(BASE + '/api/inquiry', { method: 'OPTIONS', headers: { origin: ORIGIN } });
+  assert.equal(pre.headers.get('access-control-allow-origin'), null);
+  const pre2 = await fetch(BASE + '/api/click', { method: 'OPTIONS', headers: { origin: ORIGIN } });
+  assert.equal(pre2.headers.get('access-control-allow-origin'), ORIGIN);
+});
+
 test('R-11 보안: CSRF(비 JSON 변경요청 거부), 로그인 브루트포스 제한', async () => {
   const r = await fetch(BASE + '/api/admin/inquiries/1', { method: 'PATCH', headers: { cookie, 'content-type': 'text/plain' }, body: 'x' });
   assert.equal(r.status, 415);

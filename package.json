@@ -12,7 +12,8 @@
     "dev": "node --env-file-if-exists=.env --watch server.js",
     "build": "node scripts/build-static.js",
     "build:db": "node --env-file-if-exists=.env scripts/build-static.js --from-db",
-    "test": "node --test test/*.test.js"
+    "test": "node --test test/*.test.js",
+    "tunnel": "node --env-file-if-exists=.env scripts/tunnel.js"
   },
   "dependencies": {
     "express": "^5.3.0"

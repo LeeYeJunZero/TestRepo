@@ -91,6 +91,22 @@ textarea { resize: vertical; }
 .pill.bot { background: #fee4e2; color: #b42318; }
 .empty { color: var(--muted); padding: 24px; text-align: center; }
 
+/* 누적 순위 */
+.muted { color: var(--muted); font-weight: 500; font-size: 12px; margin-left: 6px; }
+.rank-panel { margin-bottom: 16px; }
+.rank-hl { display: grid; grid-template-columns: repeat(2, 1fr); gap: 12px; margin: 12px 0 16px; }
+.rank-hl > div { border: 1px solid var(--line); border-radius: 10px; padding: 14px 16px; display: flex; align-items: center; gap: 12px; }
+.rank-hl .trophy { font-size: 26px; }
+.rank-hl span { color: var(--muted); font-size: 12px; font-weight: 600; display: block; }
+.rank-hl b { font-size: 16px; }
+.rank-no { display: inline-grid; place-items: center; width: 26px; height: 26px; border-radius: 50%; background: #f2f4f7; font-weight: 800; font-size: 13px; }
+.rank-no.r1 { background: #fef0c7; color: #93370d; }
+.bar { position: relative; height: 8px; background: #f2f4f7; border-radius: 99px; min-width: 80px; margin-top: 6px; }
+.bar i { position: absolute; inset: 0 auto 0 0; border-radius: 99px; }
+.top-clicks { display: flex; flex-wrap: wrap; gap: 4px; }
+.time-big { font-weight: 700; font-variant-numeric: tabular-nums; font-size: 15px; }
+@media (max-width: 760px) { .rank-hl { grid-template-columns: 1fr; } }
+
 /* 상담 신청 */
 .inq-list { display: grid; gap: 12px; }
 .inq { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); padding: 18px 20px; box-shadow: var(--shadow); display: grid; grid-template-columns: 1fr 280px; gap: 20px; }
