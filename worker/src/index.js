@@ -109,6 +109,12 @@ export async function flushClicks(env) {
   return rows.length;
 }
 
+// 보조: 요청이 들어올 때 60초 넘게 쌓인 클릭이 있으면 즉시 전송 (cron 지연 대비)
+async function flushIfStale(env) {
+  const r = await first(env.DB, "SELECT MIN(created_at) t FROM events WHERE kind = 'click' AND notified = 0");
+  if (r?.t && r.t <= new Date(Date.now() + 9 * 3600e3 - 60_000).toISOString().replace('T', ' ').slice(0, 19)) await flushClicks(env);
+}
+
 // ───────── 통계 ─────────
 async function statsText(db, daysIn) {
   const days = Math.min(Math.max(parseInt(daysIn) || 7, 1), 90);
@@ -307,6 +313,7 @@ export default {
     if (!url.pathname.startsWith('/api/')) return new Response('FirstTeacher API', { headers: { 'Content-Type': 'text/plain; charset=utf-8' } });
 
     const cors = corsHeaders(req, env);
+    if (req.method === 'POST' && cors) ctx.waitUntil(flushIfStale(env).catch((e) => console.error('flush', e)));
     if (req.method === 'OPTIONS') return new Response(null, { status: cors ? 204 : 403, headers: cors || {} });
     if (!cors) return json({ error: 'origin not allowed' }, 403);
     const reply = (data, status) => json(data, status, cors);
