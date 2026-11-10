@@ -69,6 +69,17 @@ db.exec(`
   CREATE INDEX IF NOT EXISTS idx_inq_created ON inquiries(created_at);
 `);
 
+// 키-값 설정 (텔레그램 관리자 채팅, 알림 on/off 등)
+db.exec(`CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT NOT NULL)`);
+const getSetStmt = db.prepare('SELECT value FROM settings WHERE key = ?');
+const putSetStmt = db.prepare('INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value');
+export function getSetting(key, fallback) {
+  const r = getSetStmt.get(key);
+  if (!r) return fallback;
+  try { return JSON.parse(r.value); } catch { return fallback; }
+}
+export const setSetting = (key, value) => putSetStmt.run(key, JSON.stringify(value));
+
 db.prepare('INSERT OR IGNORE INTO sites (key, theme, status, data) VALUES (?, ?, ?, ?)')
   .run(SITE_KEY, DEFAULT_SITE.theme, DEFAULT_SITE.status, JSON.stringify(DEFAULT_SITE.data));
 

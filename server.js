@@ -4,6 +4,8 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { db, getSite, saveSite, insertVisit, insertEvent, insertInquiry } from './src/db.js';
 import fs from 'node:fs';
+import { getStats, getRanking, purgeOlderThan, INQ_STATUS, getInquiry } from './src/stats.js';
+import { createTelegramBot } from './src/telegram.js';
 import { renderSite, renderMaintenance, renderRobots, renderSitemap } from './src/render.js';
 import { SITE_KEY, SUBJECTS, SUBJECT_NAME, TEXT_FIELDS, LIST_FIELDS, SUBJECT_FIELDS, STATUSES } from './src/defaults.js';
 
@@ -21,6 +23,12 @@ if (!ADMIN_PASSWORD) {
 }
 const SESSION_SECRET = process.env.SESSION_SECRET || crypto.randomBytes(32).toString('hex');
 if (!process.env.SESSION_SECRET) console.warn('[warn] SESSION_SECRET 미설정 → 재시작 시 어드민 세션이 만료됩니다.');
+
+// ───────────── 텔레그램 봇 (어드민 기능 + 알림) ─────────────
+const bot = process.env.TELEGRAM_BOT_TOKEN
+  ? createTelegramBot({ token: process.env.TELEGRAM_BOT_TOKEN, password: ADMIN_PASSWORD, apiBase: process.env.TELEGRAM_API_BASE, domain: DOMAIN, repoDir: __dirname })
+  : null;
+const kstNow = () => new Date(Date.now() + 9 * 3600e3).toISOString().replace('T', ' ').slice(0, 19);
 
 const app = express();
 app.disable('x-powered-by');
@@ -46,9 +54,15 @@ app.use((req, res, next) => {
   next();
 });
 
-// ───────────── CORS: GitHub Pages 등 외부 정적 사이트 → 접속 기록 API 만 허용 ─────────────
+// 웹 어드민은 로컬(이 PC) 또는 admin 서브도메인(VPS) 에서만. Cloudflare 터널 경유 요청은 차단 → 원격 관리는 텔레그램 봇
+app.use(['/admin', '/api/admin'], (req, res, next) => {
+  if (req.get('cf-connecting-ip')) return res.status(404).type('text').send('Not found');
+  next();
+});
+
+// ───────────── CORS: GitHub Pages(firstteacher.co.kr) → 공개 API (접속·이벤트·상담) 만 허용 ─────────────
 const CORS_ORIGINS = new Set((process.env.CORS_ORIGINS || '').split(',').map((s) => s.trim().replace(/\/$/, '')).filter(Boolean));
-app.use(['/api/track', '/api/event'], (req, res, next) => {
+app.use(['/api/track', '/api/event', '/api/inquiry'], (req, res, next) => {
   const origin = req.get('origin');
   const ok = origin && CORS_ORIGINS.has(origin);
   if (ok) res.set({ 'Access-Control-Allow-Origin': origin, 'Vary': 'Origin', 'Access-Control-Allow-Methods': 'POST, OPTIONS', 'Access-Control-Allow-Headers': 'Content-Type', 'Access-Control-Max-Age': '86400' });
@@ -93,6 +107,7 @@ function recordVisit(req, pathStr, referrer, vid) {
   try {
     insertVisit.run(SITE_KEY, clip(pathStr, 300), req.ip || '', ua, clip(referrer, 400), vid,
       /Mobi|Android|iPhone|iPad/i.test(ua) ? 1 : 0, BOT_RE.test(ua) ? 1 : 0);
+    if (!BOT_RE.test(ua)) bot?.onVisit({ at: kstNow(), path: clip(pathStr, 300), mobile: /Mobi|Android|iPhone|iPad/i.test(ua), referrer: clip(referrer, 200) });
   } catch (e) { console.error('visit log failed', e); }
 }
 
@@ -150,10 +165,11 @@ app.post('/api/event', rateLimit('event', 300, 60_000), (req, res) => {
   const ck = cookies(req).vid;
   const vid = isVid(ck) ? ck : isVid(b.vid) ? b.vid : '';
   insertEvent.run(b.kind, subject, clip(b.label, 60), clip(b.href, 200), vid, req.ip || '');
+  if (b.kind === 'click') bot?.onClick({ at: kstNow(), subject, label: clip(b.label, 60) });
   res.status(204).end();
 });
 
-// ───────────── 공개 API: 상담 신청 (같은 origin 만) ─────────────
+// ───────────── 공개 API: 상담 신청 (같은 origin + CORS 허용 origin) ─────────────
 app.post('/api/inquiry', rateLimit('inq', 5, 10 * 60_000), (req, res) => {
   const b = req.body || {};
   if (b.website) return res.json({ ok: true }); // honeypot
@@ -163,7 +179,8 @@ app.post('/api/inquiry', rateLimit('inq', 5, 10 * 60_000), (req, res) => {
   if (!name) return res.status(400).json({ error: '이름을 입력해 주세요.' });
   if (!/^[0-9+\-() ]{8,20}$/.test(phone)) return res.status(400).json({ error: '연락처를 정확히 입력해 주세요.' });
   if (!b.agree) return res.status(400).json({ error: '개인정보 수집·이용에 동의해 주세요.' });
-  insertInquiry.run(SITE_KEY, name, phone, clip(b.grade, 20), clip(b.subject, 80), clip(b.message, 1000), req.ip || '');
+  const r = insertInquiry.run(SITE_KEY, name, phone, clip(b.grade, 20), clip(b.subject, 80), clip(b.message, 1000), req.ip || '');
+  bot?.onInquiry(getInquiry(Number(r.lastInsertRowid)));
   res.json({ ok: true });
 });
 
@@ -206,70 +223,9 @@ app.use('/api/admin', admin);
 
 admin.get('/me', (req, res) => res.json({ ok: true, domain: DOMAIN, siteUrl: DOMAIN ? `https://${DOMAIN}/` : '/', subjects: SUBJECTS, subjectNames: SUBJECT_NAME }));
 
-const sinceExpr = (days) => `datetime('now','+9 hours','-${days - 1} days','start of day')`;
-const TODAY = `datetime('now','+9 hours','start of day')`;
-
-// ── 기간 통계 (페이지 조회 + 과목 노출·클릭)
-admin.get('/stats', (req, res) => {
-  const days = Math.min(Math.max(parseInt(req.query.days) || 7, 1), 90);
-  const since = sinceExpr(days);
-  const bots = req.query.bots === '1' ? '' : 'AND bot = 0';
-  const totals = db.prepare(`SELECT COUNT(*) pv, COUNT(DISTINCT visitor) uv, SUM(mobile) mobile, SUM(created_at >= ${TODAY}) today_pv
-    FROM visits WHERE created_at >= ${since} ${bots}`).get();
-  const dailyPv = db.prepare(`SELECT date(created_at) d, COUNT(*) n FROM visits WHERE created_at >= ${since} ${bots} GROUP BY d`).all();
-  const dailySubj = db.prepare(`SELECT date(created_at) d, subject, COUNT(*) n FROM events
-    WHERE kind = 'view' AND created_at >= ${since} GROUP BY d, subject`).all();
-  const hourly = db.prepare(`SELECT CAST(strftime('%H', created_at) AS INTEGER) h, COUNT(*) n FROM visits
-    WHERE created_at >= ${since} ${bots} GROUP BY h`).all();
-  const subj = db.prepare(`SELECT subject, SUM(kind='view') views, SUM(kind='click') clicks FROM events
-    WHERE created_at >= ${since} AND subject IS NOT NULL GROUP BY subject`).all();
-  const referrers = db.prepare(`SELECT referrer, COUNT(*) n FROM visits
-    WHERE created_at >= ${since} ${bots} AND referrer <> '' GROUP BY referrer ORDER BY n DESC LIMIT 200`).all();
-  const inqTotal = db.prepare(`SELECT COUNT(*) n FROM inquiries WHERE created_at >= ${since}`).get().n;
-  const pendingAll = db.prepare(`SELECT COUNT(*) n FROM inquiries WHERE status='new'`).get().n;
-
-  const refMap = {};
-  for (const r of referrers) {
-    let h; try { h = new URL(r.referrer).hostname; } catch { h = r.referrer; }
-    if (DOMAIN && (h === DOMAIN || h.endsWith('.' + DOMAIN))) continue;
-    if (/^(localhost|127\.0\.0\.1)$/.test(h) || h.endsWith('.github.io') || h.endsWith('.trycloudflare.com')) continue;
-    refMap[h] = (refMap[h] || 0) + r.n;
-  }
-  const topReferrers = Object.entries(refMap).sort((a, b) => b[1] - a[1]).slice(0, 10).map(([host, n]) => ({ host, n }));
-  const subjects = SUBJECTS.map((s) => {
-    const r = subj.find((x) => x.subject === s) || {};
-    const views = r.views || 0, clicks = r.clicks || 0;
-    return { subject: s, views, clicks, ctr: views ? Math.round((clicks / views) * 1000) / 10 : 0 };
-  });
-  res.json({ days, totals, dailyPv, dailySubj, hourly, subjects, topReferrers, inqTotal, pendingAll });
-});
-
-// ── 누적 과목 순위 (전체 기간): 노출 · 클릭 · 클릭률(클릭 ÷ 노출) · 많이 클릭된 항목
-admin.get('/ranking', (req, res) => {
-  const agg = db.prepare(`SELECT subject, SUM(kind='view') views, SUM(kind='click') clicks,
-      COUNT(DISTINCT CASE WHEN kind='view' THEN visitor END) viewers, MAX(created_at) last_at
-    FROM events WHERE subject IS NOT NULL GROUP BY subject`).all();
-  const labels = db.prepare(`SELECT subject, label, COUNT(*) n FROM events WHERE kind='click' AND subject IS NOT NULL
-    GROUP BY subject, label ORDER BY n DESC`).all();
-  const page = db.prepare(`SELECT COUNT(*) pv, COUNT(DISTINCT visitor) uv FROM visits WHERE bot = 0`).get();
-  const rows = SUBJECTS.map((s) => {
-    const a = agg.find((x) => x.subject === s) || {};
-    const views = a.views || 0, clicks = a.clicks || 0;
-    return {
-      subject: s, views, clicks, viewers: a.viewers || 0, lastAt: a.last_at || null,
-      ctr: views ? Math.round((clicks / views) * 1000) / 10 : 0,
-      topClicks: labels.filter((x) => x.subject === s).slice(0, 5).map(({ label, n }) => ({ label, n }))
-    };
-  }).sort((a, b) => b.views - a.views || b.ctr - a.ctr);
-  rows.forEach((r, i) => (r.rank = i + 1));
-  const top = (k) => rows.reduce((a, b) => (b[k] > a[k] ? b : a), rows[0]);
-  res.json({
-    page, rows,
-    mostViewed: rows[0].views ? rows[0].subject : null,
-    mostClicked: top('clicks').clicks ? top('clicks').subject : null,
-    bestCtr: top('ctr').ctr ? top('ctr').subject : null
-  });
-});
+// ── 기간 통계 / 누적 과목 순위 (src/stats.js 공용)
+admin.get('/stats', (req, res) => res.json(getStats(req.query.days, { bots: req.query.bots === '1', domain: DOMAIN })));
+admin.get('/ranking', (req, res) => res.json(getRanking()));
 
 // ── 접속 기록 (페이지 조회)
 admin.get('/visits', (req, res) => {
@@ -304,16 +260,9 @@ admin.get('/events', (req, res) => {
   res.json({ total, rows });
 });
 
-admin.post('/visits/purge', (req, res) => {
-  const days = Math.max(parseInt(req.body?.olderThanDays) || 0, 1);
-  const cut = `datetime('now','+9 hours','-${days} days')`;
-  const r = db.prepare(`DELETE FROM visits WHERE created_at < ${cut}`).run();
-  db.prepare(`DELETE FROM events WHERE created_at < ${cut}`).run();
-  res.json({ ok: true, deleted: Number(r.changes) });
-});
+admin.post('/visits/purge', (req, res) => res.json({ ok: true, deleted: purgeOlderThan(req.body?.olderThanDays) }));
 
 // ── 상담 신청
-const INQ_STATUS = ['new', 'contacted', 'enrolled', 'closed'];
 admin.get('/inquiries', (req, res) => {
   const where = []; const args = [];
   if (INQ_STATUS.includes(req.query.status)) { where.push('status = ?'); args.push(req.query.status); }
@@ -372,7 +321,12 @@ app.use((err, req, res, next) => {
   res.status(500).json({ error: '서버 오류' });
 });
 
-app.listen(PORT, () => {
+const server = app.listen(PORT, () => {
+  bot?.start();
   console.log(`▶ http://localhost:${PORT}  (도메인: ${DOMAIN || '미설정 – 경로 모드'})`);
   console.log(DOMAIN ? `  사이트: https://${DOMAIN}/   어드민: https://admin.${DOMAIN}/` : '  사이트: /   어드민: /admin/');
 });
+
+const shutdown = () => { bot?.stop(); server.close(); setTimeout(() => process.exit(0), 300); };
+process.on('SIGINT', shutdown);
+process.on('SIGTERM', shutdown);

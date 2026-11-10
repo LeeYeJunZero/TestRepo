@@ -102,18 +102,20 @@
     if (!data.name.trim()) { msg.textContent = '이름을 입력해 주세요.'; msg.classList.add('err'); form.name.focus(); return; }
     if (!/^[0-9+\-() ]{8,20}$/.test(data.phone.trim())) { msg.textContent = '연락처를 정확히 입력해 주세요.'; msg.classList.add('err'); form.phone.focus(); return; }
     if (!data.agree) { msg.textContent = '개인정보 수집·이용에 동의해 주세요.'; msg.classList.add('err'); return; }
-    // 정적 호스팅(GitHub Pages)은 상담 신청을 받지 않음
-    if (IS_STATIC) { msg.textContent = '미리보기 사이트입니다. 상담 신청은 정식 사이트에서 가능합니다.'; msg.classList.add('err'); return; }
+    // 정적 호스팅(GitHub Pages)은 API 서버(로컬 PC 터널/VPS)가 연결된 경우에만 접수
+    if (IS_STATIC && !API) { msg.textContent = '지금은 온라인 접수가 어렵습니다. 전화로 문의해 주세요.'; msg.classList.add('err'); return; }
     btn.disabled = true; btn.textContent = '전송 중…';
     try {
-      const res = await fetch('/api/inquiry', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data) });
+      const res = await fetch(API + '/api/inquiry', { method: 'POST', mode: 'cors', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data) });
       const j = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(j.error || '전송에 실패했습니다.');
       form.reset();
       msg.textContent = '상담 신청이 접수되었습니다. 곧 연락드리겠습니다!'; msg.classList.add('ok');
       toast('상담 신청 완료 ✓');
     } catch (err) {
-      msg.textContent = err.message; msg.classList.add('err');
+      // 네트워크 오류(서버 꺼짐 등)는 TypeError
+      msg.textContent = err instanceof TypeError ? '접수 서버에 연결할 수 없습니다. 잠시 후 다시 시도하거나 전화로 문의해 주세요.' : err.message;
+      msg.classList.add('err');
     } finally {
       btn.disabled = false; btn.textContent = '상담 신청하기';
     }

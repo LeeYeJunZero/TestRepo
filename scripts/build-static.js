@@ -15,9 +15,13 @@ try { fileCfg = JSON.parse(fs.readFileSync(path.join(root, 'pages.config.json'),
 // (Actions 에서 미설정 변수는 빈 문자열이므로 || 사용)
 const apiBase = (process.env.STATIC_API_BASE || fileCfg.apiBase || '').replace(/\/$/, '');
 
+// 콘텐츠 우선순위: --from-db (로컬 DB) → site-content.json (텔레그램 /publish 가 커밋) → src/defaults.js
 let site;
+const contentFile = path.join(root, 'site-content.json');
 if (process.argv.includes('--from-db')) {
   site = (await import('../src/db.js')).getSite();
+} else if (fs.existsSync(contentFile)) {
+  site = { key: SITE_KEY, theme: DEFAULT_SITE.theme, status: DEFAULT_SITE.status, ...JSON.parse(fs.readFileSync(contentFile, 'utf8')) };
 } else {
   site = { key: SITE_KEY, theme: DEFAULT_SITE.theme, status: DEFAULT_SITE.status, ...DEFAULT_SITE.data };
 }

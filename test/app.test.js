@@ -17,12 +17,43 @@ const DOMAIN = 'firstteacher.test';
 const UA = { 'user-agent': 'Mozilla/5.0 (Windows NT 10.0) Chrome/142 Test' };
 let proc, dataDir, cookie = '';
 
+// ── 텔레그램 API 모의 서버 ──
+const TG_TOKEN = '123:TEST';
+const tg = { calls: [], queue: [], nextId: 1 };
+const tgServer = http.createServer((req, res) => {
+  let body = ''; req.on('data', (c) => (body += c)); req.on('end', async () => {
+    const method = req.url.split('/').pop();
+    const params = body ? JSON.parse(body) : {};
+    tg.calls.push({ method, params });
+    let result = true;
+    if (method === 'getMe') result = { id: 1, username: 'ft_test_bot' };
+    if (method === 'sendMessage') result = { message_id: tg.nextId++ };
+    if (method === 'getUpdates') {
+      for (let i = 0; i < 10 && !tg.queue.length; i++) await new Promise((r) => setTimeout(r, 30));
+      result = tg.queue.splice(0);
+    }
+    res.setHeader('Content-Type', 'application/json');
+    res.end(JSON.stringify({ ok: true, result }));
+  });
+});
+let updId = 1;
+const tgPush = (u) => tg.queue.push({ update_id: updId++, ...u });
+const tgMsg = (chatId, text) => tgPush({ message: { message_id: 1, chat: { id: chatId }, text } });
+const waitFor = async (pred, ms = 3000) => {
+  const t0 = Date.now();
+  while (Date.now() - t0 < ms) { const hit = tg.calls.find(pred); if (hit) return hit; await new Promise((r) => setTimeout(r, 25)); }
+  throw new Error('timeout waiting for telegram call');
+};
+const sent = (chatId, re) => (c) => c.method === 'sendMessage' && c.params.chat_id === chatId && re.test(c.params.text);
+
 before(async () => {
   dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'ft-test-'));
+  await new Promise((r) => tgServer.listen(0, '127.0.0.1', r));
   proc = spawn(process.execPath, ['server.js'], {
     cwd: root,
     env: { ...process.env, PORT: String(PORT), DATA_DIR: dataDir, ADMIN_PASSWORD: PW, SESSION_SECRET: 'x'.repeat(64),
-      SITE_DOMAIN: DOMAIN, CORS_ORIGINS: ORIGIN, NODE_ENV: 'test' },
+      SITE_DOMAIN: DOMAIN, CORS_ORIGINS: ORIGIN, NODE_ENV: 'test',
+      TELEGRAM_BOT_TOKEN: TG_TOKEN, TELEGRAM_API_BASE: `http://127.0.0.1:${tgServer.address().port}`, TELEGRAM_CLICK_BATCH_MS: '150' },
     stdio: ['ignore', 'pipe', 'pipe']
   });
   for (let i = 0; i < 50; i++) {
@@ -30,7 +61,7 @@ before(async () => {
   }
   throw new Error('server did not start');
 });
-after(() => { proc?.kill(); try { fs.rmSync(dataDir, { recursive: true, force: true }); } catch {} });
+after(() => { tgServer.close(); tgServer.closeAllConnections?.(); proc?.kill(); try { fs.rmSync(dataDir, { recursive: true, force: true }); } catch {} });
 
 const get = (p, headers = {}) => fetch(BASE + p, { headers: { ...UA, ...headers }, redirect: 'manual' });
 const json = (p, method, body, headers = {}) => fetch(BASE + p, {
@@ -201,15 +232,13 @@ test('R-11 점검 모드: 503 안내 + 상담 접수 중단 → 복구', async (
   assert.equal((await get('/')).status, 200);
 });
 
-test('R-12 GitHub Pages 연동: track·event 만 CORS 허용, 상담 API 비허용', async () => {
-  for (const p of ['/api/track', '/api/event']) {
+test('R-12 GitHub Pages 연동: track·event·inquiry CORS 허용(허용 origin 만), 어드민 API 비허용', async () => {
+  for (const p of ['/api/track', '/api/event', '/api/inquiry']) {
     const pre = await fetch(BASE + p, { method: 'OPTIONS', headers: { origin: ORIGIN } });
     assert.equal(pre.status, 204);
     assert.equal(pre.headers.get('access-control-allow-origin'), ORIGIN);
     assert.equal((await fetch(BASE + p, { method: 'OPTIONS', headers: { origin: 'https://evil.example' } })).status, 403);
   }
-  const inq = await fetch(BASE + '/api/inquiry', { method: 'OPTIONS', headers: { origin: ORIGIN } });
-  assert.equal(inq.headers.get('access-control-allow-origin'), null);
   const a = await fetch(BASE + '/api/admin/stats', { headers: { origin: ORIGIN, cookie } });
   assert.equal(a.headers.get('access-control-allow-origin'), null);
   const vid = 'a'.repeat(32);
@@ -274,4 +303,59 @@ test('R-15 검색엔진: robots·sitemap·canonical·OG·구조화 데이터·�
   assert.ok(dist('index.html').includes('<link rel="canonical" href="https://firstteacher.co.kr/">'));
   assert.ok(dist('math/index.html').includes('noindex'));
   assert.ok(fs.existsSync(path.join(root, 'dist', 'assets', 'og.png')));
+});
+
+test('R-16 텔레그램 봇: 페어링·상담 알림·버튼 처리·클릭 묶음 알림·명령·권한', async () => {
+  await waitFor((c) => c.method === 'getMe');
+  assert.ok(tg.calls.some((c) => c.method === 'setMyCommands' && c.params.commands.some((x) => x.command === 'rank')));
+  const ADMIN = 777, STRANGER = 999;
+  // 미등록 채팅 거부
+  tgMsg(STRANGER, '/rank');
+  await waitFor(sent(STRANGER, /등록되지 않은 채팅/));
+  // 잘못된 비밀번호 → 거부, 올바른 비밀번호 → 등록
+  tgMsg(ADMIN, '/pair wrong');
+  await waitFor(sent(ADMIN, /비밀번호가 올바르지 않습니다/));
+  tgMsg(ADMIN, '/pair ' + PW);
+  await waitFor(sent(ADMIN, /관리자로 등록/));
+  // 상담 신청 → 즉시 알림 + 인라인 버튼
+  const r = await json('/api/inquiry', 'POST', { name: '김알림', phone: '010-5555-6666', grade: '고등학생', subject: '코딩 · 웹 개발 포트폴리오', message: '주말 가능?', agree: true }, { origin: ORIGIN });
+  assert.equal(r.status, 200);
+  assert.equal(r.headers.get('access-control-allow-origin'), ORIGIN);
+  const note = await waitFor(sent(ADMIN, /김알림/));
+  assert.match(note.params.text, /상담 신청 #\d+/);
+  assert.match(note.params.text, /010-5555-6666/);
+  const btn = note.params.reply_markup.inline_keyboard[0].find((b) => b.text.includes('연락완료'));
+  const id = Number(btn.callback_data.split(':')[1]);
+  // 버튼: 연락완료 → DB 반영 + 메시지 수정
+  tgPush({ callback_query: { id: 'cb1', data: btn.callback_data, message: { message_id: note.params.message_id || 1, chat: { id: ADMIN } } } });
+  await waitFor((c) => c.method === 'answerCallbackQuery' && c.params.callback_query_id === 'cb1');
+  await waitFor((c) => c.method === 'editMessageText' && /연락완료/.test(c.params.text));
+  const inq = (await (await adm('/inquiries')).json()).rows.find((x) => x.id === id);
+  assert.equal(inq.status, 'contacted');
+  // 클릭 2건 → 묶음 알림 1건
+  await json('/api/event', 'POST', { kind: 'click', subject: 'english', label: '영어 과정 보기' });
+  await json('/api/event', 'POST', { kind: 'click', subject: 'coding', label: '이 과정 상담하기' });
+  const batch = await waitFor(sent(ADMIN, /클릭 2건/));
+  assert.match(batch.params.text, /영어 · 영어 과정 보기/);
+  assert.match(batch.params.text, /코딩 · 이 과정 상담하기/);
+  // 명령
+  tgMsg(ADMIN, '/rank');
+  await waitFor(sent(ADMIN, /누적 과목 순위/));
+  tgMsg(ADMIN, '/stats 7');
+  await waitFor(sent(ADMIN, /통계 \(최근 7일\)/));
+  tgMsg(ADMIN, '/clicks 5');
+  await waitFor(sent(ADMIN, /최근 클릭/));
+  tgMsg(ADMIN, '/notice 텔레그램 공지 테스트');
+  await waitFor(sent(ADMIN, /공지 변경: 텔레그램 공지 테스트/));
+  assert.ok((await (await get('/')).text()).includes('텔레그램 공지 테스트'));
+  // 알림 끄기 → 클릭 알림 없음
+  tgPush({ callback_query: { id: 'cb2', data: 'notify:click', message: { message_id: 5, chat: { id: ADMIN } } } });
+  await waitFor((c) => c.method === 'answerCallbackQuery' && c.params.callback_query_id === 'cb2');
+  const before = tg.calls.length;
+  await json('/api/event', 'POST', { kind: 'click', subject: 'math', label: 'off 테스트' });
+  await new Promise((r) => setTimeout(r, 400));
+  assert.ok(!tg.calls.slice(before).some((c) => c.method === 'sendMessage' && /off 테스트/.test(c.params.text)));
+  // 터널(Cloudflare) 경유 웹 어드민 차단
+  assert.equal((await fetch(BASE + '/api/admin/me', { headers: { cookie, 'cf-connecting-ip': '1.2.3.4' } })).status, 404);
+  assert.equal((await fetch(BASE + '/admin/', { headers: { 'cf-connecting-ip': '1.2.3.4' } })).status, 404);
 });

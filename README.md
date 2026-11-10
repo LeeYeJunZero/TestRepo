@@ -7,6 +7,28 @@
 
 기능·지표 정의·검증 기준은 [REQUIREMENTS.md](REQUIREMENTS.md) 참고.
 
+## 텔레그램 봇 (어드민 · 알림)
+
+1. 텔레그램에서 **@BotFather** → `/newbot` → 봇 이름 입력 → 발급된 토큰 복사
+2. `.env` 에 `TELEGRAM_BOT_TOKEN=발급받은토큰` 추가 (토큰은 비밀 — 커밋 금지, .env 는 gitignore 됨)
+3. `npm run tunnel` (또는 `npm start`) 재시작 → 콘솔에 `[telegram] @봇이름 연결됨`
+4. 텔레그램에서 봇 채팅방 열기 → `/pair .env의ADMIN_PASSWORD` 전송 → 관리자 등록
+
+| 명령 | 기능 |
+|---|---|
+| `/stats 7` | 기간 통계 (1/7/30/90일) |
+| `/rank` | 누적 과목 순위·클릭률 |
+| `/visits` · `/clicks` | 최근 접속 · 클릭 기록 |
+| `/inq` · `/inq all` | 미처리 · 전체 상담 (버튼으로 상태 변경/삭제) |
+| `/memo 번호 내용` | 상담 메모 |
+| `/notify` | 상담·클릭·접속 알림 on/off |
+| `/notice 내용` · `/notice off` | 상단 공지 |
+| `/maint on` · `/maint off` | 점검 모드 |
+| `/publish` | 변경한 콘텐츠를 GitHub Pages 에 반영 (site-content.json 커밋·push) |
+| `/purge` | 30일 이전 기록 삭제 |
+
+알림: 상담 신청은 즉시, 클릭은 30초 단위로 묶어서 전송. 웹 어드민(`http://localhost:3000/admin/`)은 이 PC 에서만 열립니다.
+
 ## 로컬 실행
 
 ```bash
