@@ -6,7 +6,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { DEFAULT_SITE, SITE_KEY, SUBJECTS } from '../src/defaults.js';
-import { renderSite, renderMaintenance, renderRedirect } from '../src/render.js';
+import { renderSite, renderMaintenance, renderRedirect, renderRobots, renderSitemap } from '../src/render.js';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const out = path.join(root, 'dist');
@@ -34,7 +34,8 @@ fs.rmSync(out, { recursive: true, force: true });
 copyDir(path.join(root, 'public/assets'), path.join(out, 'assets'));
 
 const domain = fileCfg.customDomain || '';
-const opts = { assetBase: 'assets', apiBase, track: true, static: true, canonical: domain ? `https://${domain}/` : undefined };
+const canonical = domain ? `https://${domain}/` : undefined;
+const opts = { assetBase: 'assets', apiBase, track: true, static: true, canonical, verify: fileCfg.verification || {} };
 fs.writeFileSync(path.join(out, 'index.html'), site.status === 'maintenance' ? renderMaintenance(site, opts) : renderSite(site, opts));
 for (const s of SUBJECTS) {
   fs.mkdirSync(path.join(out, s), { recursive: true });
@@ -44,4 +45,11 @@ fs.writeFileSync(path.join(out, '404.html'), '<!doctype html><meta charset="utf-
 fs.writeFileSync(path.join(out, '.nojekyll'), '');
 // 커스텀 도메인 (GitHub Pages Settings → Custom domain 과 같은 값)
 if (domain) fs.writeFileSync(path.join(out, 'CNAME'), `${domain}\n`);
+// 검색엔진: robots.txt + sitemap.xml
+fs.writeFileSync(path.join(out, 'robots.txt'), renderRobots(canonical));
+if (canonical) fs.writeFileSync(path.join(out, 'sitemap.xml'), renderSitemap(canonical, new Date(Date.now() + 9 * 3600e3).toISOString().slice(0, 10)));
+// 검색엔진 HTML 파일 소유확인 (pages.config.json → verificationFiles: { "google1234.html": "내용" })
+for (const [name, body] of Object.entries(fileCfg.verificationFiles || {})) {
+  if (/^[\w.-]+\.(html|txt|xml)$/.test(name)) fs.writeFileSync(path.join(out, name), body);
+}
 console.log(`built ${site.name} → dist/  (접속 기록 API: ${apiBase || '없음'})`);

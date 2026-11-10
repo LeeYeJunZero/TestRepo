@@ -1,5 +1,11 @@
 {
   "customDomain": "firstteacher.co.kr",
+  "verification": {
+    "google": "",
+    "naver": "",
+    "bing": ""
+  },
+  "verificationFiles": {},
   "pagesOrigin": "https://firstteacher.co.kr,https://www.firstteacher.co.kr,https://leeyejunzero.github.io",
   "apiBase": "https://bryant-corrected-authentic-mpegs.trycloudflare.com"
 }

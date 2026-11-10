@@ -237,3 +237,41 @@ test('R-14 정적 빌드: dist/index.html 통합 페이지 + 기존 과목 주�
   }
   assert.ok(fs.existsSync(path.join(root, 'dist', 'assets', 'js', 'site.js')));
 });
+
+test('R-15 검색엔진: robots·sitemap·canonical·OG·구조화 데이터·소유확인 메타', async () => {
+  // 서버 모드 (도메인 설정)
+  const robots = await hostGet(DOMAIN, '/robots.txt');
+  assert.match(robots.body, /Allow: \//);
+  assert.match(robots.body, new RegExp(`Sitemap: https://${DOMAIN}/sitemap.xml`));
+  assert.match((await hostGet('admin.' + DOMAIN, '/robots.txt')).body, /Disallow: \//);
+  const sm = await hostGet(DOMAIN, '/sitemap.xml');
+  assert.equal(sm.status, 200);
+  assert.match(sm.body, new RegExp(`<loc>https://${DOMAIN}/</loc>`));
+  const html = (await hostGet(DOMAIN, '/')).body;
+  assert.ok(html.includes(`<meta property="og:image" content="https://${DOMAIN}/assets/og.png">`));
+  const blocks = [...html.matchAll(/<script type="application\/ld\+json">(.*?)<\/script>/gs)].map((m) => JSON.parse(m[1]));
+  const org = blocks.find((b) => b['@type'] === 'EducationalOrganization');
+  assert.equal(org.name, '퍼스트티쳐');
+  assert.ok(org.hasOfferCatalog.itemListElement.length >= 9);
+  assert.ok(!('telephone' in org), '예시 전화번호는 구조화 데이터에서 제외');
+  assert.ok(blocks.some((b) => b['@type'] === 'FAQPage'));
+  assert.equal((await get('/assets/og.png')).status, 200);
+  // 소유확인 메타 + JSON-LD 의 </script> 탈출 방지
+  const { renderSite } = await import('../src/render.js');
+  const { DEFAULT_SITE } = await import('../src/defaults.js');
+  const out = renderSite({ key: 'x', ...DEFAULT_SITE.data, heroSub: '</script><script>alert(1)</script>' },
+    { canonical: 'https://a.test/', verify: { google: 'G-CODE', naver: 'N-CODE', bing: 'B-CODE' } });
+  assert.ok(out.includes('<meta name="google-site-verification" content="G-CODE">'));
+  assert.ok(out.includes('<meta name="naver-site-verification" content="N-CODE">'));
+  assert.ok(out.includes('<meta name="msvalidate.01" content="B-CODE">'));
+  assert.ok(!out.includes('</script><script>alert(1)'));
+  // 정적 빌드
+  execFileSync(process.execPath, ['scripts/build-static.js'], { cwd: root });
+  const dist = (f) => fs.readFileSync(path.join(root, 'dist', f), 'utf8');
+  assert.match(dist('robots.txt'), /Sitemap: https:\/\/firstteacher\.co\.kr\/sitemap\.xml/);
+  assert.match(dist('sitemap.xml'), /<loc>https:\/\/firstteacher\.co\.kr\/<\/loc>/);
+  assert.equal(dist('CNAME').trim(), 'firstteacher.co.kr');
+  assert.ok(dist('index.html').includes('<link rel="canonical" href="https://firstteacher.co.kr/">'));
+  assert.ok(dist('math/index.html').includes('noindex'));
+  assert.ok(fs.existsSync(path.join(root, 'dist', 'assets', 'og.png')));
+});

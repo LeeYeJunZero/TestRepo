@@ -7,8 +7,52 @@ const tel = (p) => esc(String(p || '').replace(/[^0-9+]/g, ''));
 
 const FONT = '<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">';
 
-function head(site, title, A, canonical) {
+// <script type="application/ld+json"> 안에서 </script> 탈출 방지
+const ld = (obj) => `<script type="application/ld+json">${JSON.stringify(obj).replace(/</g, '\\u003c')}</script>`;
+
+// 검색엔진 구조화 데이터: 교육기관 + 수업 과정 카탈로그 + FAQ
+function structuredData(site, url) {
+  const subjName = (k) => (site.subjects || []).find((s) => s.key === k)?.name || SUBJECT_NAME[k] || k;
+  const org = {
+    '@context': 'https://schema.org',
+    '@type': 'EducationalOrganization',
+    name: site.name,
+    description: site.heroSub,
+    url,
+    ...(site.phone && !/^010-0000-0000$/.test(site.phone) ? { telephone: site.phone } : {}),
+    ...(site.email ? { email: site.email } : {}),
+    ...(site.area ? { areaServed: site.area } : {}),
+    image: url + 'assets/og.png',
+    hasOfferCatalog: {
+      '@type': 'OfferCatalog',
+      name: '수업 과정',
+      itemListElement: (site.courses || []).map((c) => ({
+        '@type': 'Offer',
+        description: c.price,
+        itemOffered: {
+          '@type': 'Course',
+          name: `${subjName(c.subject)} · ${c.name}`,
+          description: `${c.target} — ${c.desc}`,
+          provider: { '@type': 'EducationalOrganization', name: site.name, sameAs: url }
+        }
+      }))
+    }
+  };
+  const faq = (site.faqs || []).length ? {
+    '@context': 'https://schema.org',
+    '@type': 'FAQPage',
+    mainEntity: site.faqs.map((f) => ({ '@type': 'Question', name: f.q, acceptedAnswer: { '@type': 'Answer', text: f.a } }))
+  } : null;
+  return ld(org) + (faq ? '\n' + ld(faq) : '');
+}
+
+// opts.canonical: 대표 URL (https://firstteacher.co.kr/) — 있으면 og:url·og:image 절대경로·구조화 데이터 출력
+// opts.verify   : { google, naver, bing } 검색엔진 소유확인 코드
+function head(site, title, A, opts = {}) {
   const color = /^#[0-9a-fA-F]{6}$/.test(site.color || '') ? site.color : '';
+  const canonical = opts.canonical;
+  const v = opts.verify || {};
+  const subjects = (site.subjects || []).map((s) => s.name).join(', ');
   return `<!doctype html>
 <html lang="ko">
 <head>
@@ -16,10 +60,22 @@ function head(site, title, A, canonical) {
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>${esc(title)}</title>
 <meta name="description" content="${esc(site.heroSub)}">
+<meta name="keywords" content="${esc([site.name, '과외', '1:1 과외', subjects, ...(site.subjects || []).map((s) => s.name + ' 과외')].join(', '))}">
+<meta name="robots" content="index,follow,max-image-preview:large">
+${v.google ? `<meta name="google-site-verification" content="${esc(v.google)}">` : ''}
+${v.naver ? `<meta name="naver-site-verification" content="${esc(v.naver)}">` : ''}
+${v.bing ? `<meta name="msvalidate.01" content="${esc(v.bing)}">` : ''}
 <meta property="og:type" content="website">
+<meta property="og:locale" content="ko_KR">
+<meta property="og:site_name" content="${esc(site.name)}">
 <meta property="og:title" content="${esc(site.name)} | ${esc(site.tagline)}">
 <meta property="og:description" content="${esc(site.heroSub)}">
-${canonical ? `<link rel="canonical" href="${esc(canonical)}"><meta property="og:url" content="${esc(canonical)}">` : ''}
+${canonical ? `<link rel="canonical" href="${esc(canonical)}">
+<meta property="og:url" content="${esc(canonical)}">
+<meta property="og:image" content="${esc(canonical)}assets/og.png">
+<meta property="og:image:width" content="1200"><meta property="og:image:height" content="630">
+<meta name="twitter:card" content="summary_large_image">
+${structuredData(site, canonical)}` : ''}
 <meta name="theme-color" content="${esc(color || '#6750a4')}">
 <link rel="icon" href="data:image/svg+xml,${encodeURIComponent(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64"><rect width="64" height="64" rx="16" fill="${color || '#6750a4'}"/><text x="32" y="44" font-size="34" font-family="Arial" font-weight="700" fill="#fff" text-anchor="middle">${esc(site.heroSymbol || 'F')}</text></svg>`)}">
 ${FONT}
@@ -45,7 +101,7 @@ export function renderSite(site, opts = {}) {
   const q = site.faqs || [];
   const subjName = (k) => subjects.find((s) => s.key === k)?.name || SUBJECT_NAME[k] || '';
 
-  return `${head(site, `${site.name} | ${site.tagline}`, A, opts.canonical)}
+  return `${head(site, `${site.name} | ${site.tagline}`, A, opts)}
 <body class="theme-material" data-site="${esc(site.key)}" data-api="${esc(api)}" data-track="${opts.track ? '1' : '0'}" data-static="${opts.static ? '1' : '0'}">
 ${site.notice ? `<div class="notice" role="status"><div class="wrap">${esc(site.notice)}</div></div>` : ''}
 <header class="nav">
@@ -225,9 +281,21 @@ export function renderMaintenance(site, opts = {}) {
 </html>`;
 }
 
+export function renderRobots(canonical) {
+  return `User-agent: *\nAllow: /\n${canonical ? `\nSitemap: ${canonical}sitemap.xml\n` : ''}`;
+}
+
+export function renderSitemap(canonical, lastmod) {
+  return `<?xml version="1.0" encoding="UTF-8"?>
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+  <url><loc>${esc(canonical)}</loc><lastmod>${esc(lastmod)}</lastmod><changefreq>weekly</changefreq><priority>1.0</priority></url>
+</urlset>
+`;
+}
+
 // 기존 /math/ /english/ /coding/ 주소 → 통합 페이지 해당 과목으로 이동 (GitHub Pages 용)
 export function renderRedirect(to) {
   return `<!doctype html><html lang="ko"><head><meta charset="utf-8"><title>퍼스트티쳐로 이동</title>
-<meta http-equiv="refresh" content="0; url=${esc(to)}"><link rel="canonical" href="${esc(to)}"></head>
+<meta name="robots" content="noindex,follow"><meta http-equiv="refresh" content="0; url=${esc(to)}"></head>
 <body><p>퍼스트티쳐로 이동합니다. <a href="${esc(to)}">바로 가기</a></p></body></html>`;
 }

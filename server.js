@@ -3,7 +3,8 @@ import crypto from 'node:crypto';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { db, getSite, saveSite, insertVisit, insertEvent, insertInquiry } from './src/db.js';
-import { renderSite, renderMaintenance } from './src/render.js';
+import fs from 'node:fs';
+import { renderSite, renderMaintenance, renderRobots, renderSitemap } from './src/render.js';
 import { SITE_KEY, SUBJECTS, SUBJECT_NAME, TEXT_FIELDS, LIST_FIELDS, SUBJECT_FIELDS, STATUSES } from './src/defaults.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -36,7 +37,7 @@ app.use((req, res, next) => {
   if (!DOMAIN) return next();
   const host = (req.hostname || '').toLowerCase();
   if (host === 'admin.' + DOMAIN) {
-    if (!req.url.startsWith('/api/') && !req.url.startsWith('/assets/')) req.url = '/admin' + req.url;
+    if (!req.url.startsWith('/api/') && !req.url.startsWith('/assets/') && req.path !== '/robots.txt') req.url = '/admin' + req.url;
   } else if (host === DOMAIN || host === 'www.' + DOMAIN) {
     if (req.path === '/admin' || req.path.startsWith('/admin/') || req.path.startsWith('/api/admin')) {
       return res.status(404).type('text').send('Not found'); // 어드민은 admin 서브도메인에서만
@@ -97,6 +98,22 @@ function recordVisit(req, pathStr, referrer, vid) {
 
 // ───────────── 공개: 사이트 ─────────────
 const canonical = DOMAIN ? `https://${DOMAIN}/` : undefined;
+let seoCfg = {};
+try { seoCfg = JSON.parse(fs.readFileSync(path.join(__dirname, 'pages.config.json'), 'utf8')); } catch { /* 없음 */ }
+const siteVerification = seoCfg.verification || {};
+
+// 검색엔진: robots.txt (어드민 호스트는 전체 차단) + sitemap.xml + HTML 소유확인 파일
+app.get('/robots.txt', (req, res) => {
+  const isAdminHost = DOMAIN && (req.hostname || '').toLowerCase() === 'admin.' + DOMAIN;
+  res.type('text').send(isAdminHost ? 'User-agent: *\nDisallow: /\n' : renderRobots(canonical));
+});
+app.get('/sitemap.xml', (req, res) => {
+  if (!canonical) return res.status(404).end();
+  res.type('application/xml').send(renderSitemap(canonical, getSite().updatedAt.slice(0, 10)));
+});
+for (const [name, body] of Object.entries(seoCfg.verificationFiles || {})) {
+  if (/^[\w.-]+\.(html|txt|xml)$/.test(name)) app.get('/' + name, (req, res) => res.type(name.split('.').pop()).send(body));
+}
 app.get('/', (req, res) => {
   const site = getSite();
   let vid = cookies(req).vid;
@@ -107,7 +124,7 @@ app.get('/', (req, res) => {
   recordVisit(req, req.originalUrl, req.get('referer'), vid);
   res.set('Cache-Control', 'no-store');
   if (site.status === 'maintenance') return res.status(503).type('html').send(renderMaintenance(site));
-  res.type('html').send(renderSite(site, { canonical }));
+  res.type('html').send(renderSite(site, { canonical, verify: siteVerification }));
 });
 // 기존 과목별 주소 → 통합 페이지 해당 과목
 for (const s of SUBJECTS) app.get([`/${s}`, `/${s}/`], (req, res) => res.redirect(301, `/#subject-${s}`));
