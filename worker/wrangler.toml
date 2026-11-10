@@ -1,0 +1,20 @@
+# 퍼스트티쳐 API — Cloudflare Worker + D1
+name = "firstteacher-api"
+main = "src/index.js"
+compatibility_date = "2025-10-01"
+workers_dev = true
+
+[vars]
+ALLOWED_ORIGINS = "https://firstteacher.co.kr,https://www.firstteacher.co.kr,https://leeyejunzero.github.io"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "firstteacher"
+database_id = "17846ea6-9734-4d54-804b-4272c5cd6395"
+
+# 매 1분: 미전송 클릭을 묶어서 텔레그램 알림
+[triggers]
+crons = ["* * * * *"]
+
+[observability]
+enabled = true

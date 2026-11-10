@@ -128,3 +128,8 @@
 /* 선생님 카드 과목 색 */
 .theme-material .tutor .avatar { background: var(--s-soft); color: var(--s-on); }
 .tutor .chip { margin-bottom: 6px; display: inline-block; }
+
+/* 점검 안내 배너 (텔레그램 /maint on) */
+.maint-banner { max-width: 1080px; margin: 24px auto 0; text-align: center; border-radius: 20px; padding: 24px; background: #fff3e0; }
+.maint-banner b { font-size: 18px; }
+.maint-banner p { margin: 6px 0 0; }

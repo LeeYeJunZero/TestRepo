@@ -263,6 +263,9 @@ export function createTelegramBot({ token, password, apiBase = 'https://api.tele
       running = true;
       try {
         const me = await call('getMe');
+        // 웹훅(Cloudflare Worker)이 설정돼 있으면 롱폴링과 충돌하므로 로컬 봇은 쉼
+        const wh = await call('getWebhookInfo').catch(() => ({}));
+        if (wh.url) { log.log(`[telegram] @${me.username} 은 웹훅(${wh.url})으로 운영 중 → 로컬 봇 비활성`); running = false; return; }
         await call('setMyCommands', { commands: COMMANDS.map(([command, description]) => ({ command, description })) }).catch(() => {});
         log.log(`[telegram] @${me.username} 연결됨 · 관리자 ${admins().length}명${admins().length ? '' : ' (봇에게 /pair 비밀번호 를 보내 연결하세요)'}`);
       } catch (e) { log.error('[telegram] 토큰 확인 실패:', e.message); running = false; return; }

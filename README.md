@@ -7,6 +7,19 @@
 
 기능·지표 정의·검증 기준은 [REQUIREMENTS.md](REQUIREMENTS.md) 참고.
 
+## 운영 구조 (24시간, PC 불필요)
+
+| 역할 | 위치 |
+|---|---|
+| 홈페이지 | GitHub Pages → https://firstteacher.co.kr |
+| 접속·클릭·상담 수집, 텔레그램 봇 | Cloudflare Worker → `https://firstteacher-api.firstteacher-api.workers.dev` ([worker/](worker/)) |
+| 데이터 | Cloudflare D1 (`firstteacher`) |
+
+- Worker 수정 후 배포: `cd worker && npx wrangler deploy`
+- 비밀 값: `npx wrangler secret put TELEGRAM_BOT_TOKEN` / `ADMIN_PASSWORD`
+- 클릭 알림은 cron(매 1분)으로 묶어서 전송, `/notice`·`/maint` 는 사이트가 로드 시 `/api/site` 를 읽어 즉시 반영
+- 로컬 서버(`npm start`/`npm run tunnel`)는 개발·백업용. 텔레그램은 웹훅으로 Worker 가 처리하므로 로컬 봇은 자동 비활성
+
 ## 텔레그램 봇 (어드민 · 알림)
 
 1. 텔레그램에서 **@BotFather** → `/newbot` → 봇 이름 입력 → 발급된 토큰 복사

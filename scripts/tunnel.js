@@ -59,7 +59,10 @@ console.log(`  어드민     : ${url}/admin/   (로컬: http://localhost:${PORT}
 console.log(`  수집 대상  : ${pagesOrigin.split(',').join(' , ')}`);
 
 // 4) pages.config.json 갱신 → push → GitHub Actions 가 Pages 재배포
-if (cfg.apiBase !== url) {
+//    운영 API 가 Cloudflare Worker(workers.dev)로 설정돼 있으면 덮어쓰지 않음 (--force 로만 전환)
+if (/workers\.dev/.test(cfg.apiBase || '') && !process.argv.includes('--force')) {
+  console.log(`  운영 API(${cfg.apiBase}) 사용 중 → 사이트 수신 주소는 변경하지 않습니다. (터널로 전환: --force)`);
+} else if (cfg.apiBase !== url) {
   cfg.apiBase = url;
   fs.writeFileSync(CFG, JSON.stringify(cfg, null, 2) + '\n');
   if (noPush) {

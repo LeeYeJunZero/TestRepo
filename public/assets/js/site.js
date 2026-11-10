@@ -25,6 +25,29 @@
     }).catch(() => {});
   };
 
+  // 0) 공지·점검 상태 (텔레그램 /notice, /maint → 재배포 없이 즉시 반영)
+  if (IS_STATIC && API) {
+    fetch(API + '/api/site', { mode: 'cors', cache: 'no-store' }).then((r) => r.json()).then((s) => {
+      if (typeof s.notice === 'string') {
+        let bar = document.querySelector('.notice');
+        if (!s.notice) bar?.remove();
+        else {
+          if (!bar) { bar = document.createElement('div'); bar.className = 'notice'; bar.setAttribute('role', 'status'); bar.innerHTML = '<div class="wrap"></div>'; body.prepend(bar); }
+          bar.querySelector('.wrap').textContent = s.notice;
+        }
+      }
+      if (s.status === 'maintenance') {
+        const main = document.querySelector('main');
+        const el = document.createElement('div');
+        el.className = 'maint-banner card';
+        el.innerHTML = '<b>🛠 사이트 점검 중입니다</b><p>잠시 후 다시 방문해 주세요. 상담 문의는 전화로 부탁드립니다.</p>';
+        main?.prepend(el);
+        const form = document.getElementById('applyForm');
+        form?.querySelectorAll('input, select, textarea, button').forEach((x) => (x.disabled = true));
+      }
+    }).catch(() => {});
+  }
+
   // 1) 페이지 조회 (정적 모드만 — 서버 모드는 서버가 HTML 응답 시 직접 기록)
   if (body.dataset.track === '1') post('/api/track', { path: location.pathname + location.search, referrer: document.referrer });
 
