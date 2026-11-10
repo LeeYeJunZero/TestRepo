@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 # Ubuntu 22.04/24.04 서버 최초 설치 스크립트 (root 로 실행)
-#   사용법: sudo bash setup-ubuntu.sh <도메인> <git 저장소 URL>
+#   사용법: sudo bash setup-ubuntu.sh [도메인] [git 저장소 URL]
 set -euo pipefail
-DOMAIN="${1:?도메인을 입력하세요 (예: example.com)}"
-REPO="${2:?git 저장소 URL 을 입력하세요}"
+DOMAIN="${1:-firstteacher.co.kr}"
+REPO="${2:-https://github.com/LeeYeJunZero/TestRepo.git}"
 APP=/opt/tutor-sites
 
 apt-get update
@@ -32,7 +32,7 @@ SITE_DOMAIN=$DOMAIN
 ADMIN_PASSWORD=$PW
 SESSION_SECRET=$(openssl rand -hex 32)
 DATA_DIR=$APP/data
-CORS_ORIGINS=
+CORS_ORIGINS=https://leeyejunzero.github.io
 ENV
   echo "★ 어드민 비밀번호: $PW   ($APP/.env 에서 변경 가능)"
 fi
@@ -40,7 +40,7 @@ chown -R tutor:tutor "$APP"
 chmod 600 "$APP/.env"
 
 cp "$APP/deploy/tutor-sites.service" /etc/systemd/system/
-sed "s/example.com/$DOMAIN/g" "$APP/deploy/Caddyfile" > /etc/caddy/Caddyfile
+sed "s/firstteacher.co.kr/$DOMAIN/g" "$APP/deploy/Caddyfile" > /etc/caddy/Caddyfile
 systemctl daemon-reload
 systemctl enable --now tutor-sites
 systemctl reload caddy || systemctl restart caddy

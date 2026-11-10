@@ -2,13 +2,14 @@ import express from 'express';
 import crypto from 'node:crypto';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { db, getSite, listSites, saveSite, insertVisit, insertClick, insertInquiry } from './src/db.js';
-import { renderSite, renderMaintenance, renderPortal } from './src/render.js';
-import { SITE_KEYS, TEXT_FIELDS, LIST_FIELDS, STATUSES } from './src/defaults.js';
+import { db, getSite, saveSite, insertVisit, insertEvent, insertInquiry } from './src/db.js';
+import { renderSite, renderMaintenance } from './src/render.js';
+import { SITE_KEY, SUBJECTS, SUBJECT_NAME, TEXT_FIELDS, LIST_FIELDS, SUBJECT_FIELDS, STATUSES } from './src/defaults.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PORT = Number(process.env.PORT || 3000);
 const PROD = process.env.NODE_ENV === 'production';
+// 예: firstteacher.co.kr → 사이트: firstteacher.co.kr / www.firstteacher.co.kr, 어드민: admin.firstteacher.co.kr
 const DOMAIN = (process.env.SITE_DOMAIN || '').toLowerCase().trim();
 
 let ADMIN_PASSWORD = process.env.ADMIN_PASSWORD;
@@ -22,45 +23,40 @@ if (!process.env.SESSION_SECRET) console.warn('[warn] SESSION_SECRET 미설정 �
 
 const app = express();
 app.disable('x-powered-by');
-app.set('trust proxy', process.env.TRUST_PROXY || 'loopback'); // Caddy/Nginx 뒤에서 실제 IP 사용
+app.set('trust proxy', process.env.TRUST_PROXY || 'loopback'); // Caddy/cloudflared 뒤에서 실제 IP 사용
 
-// ───────────── 공통 헤더 ─────────────
 app.use((req, res, next) => {
-  res.set({
-    'X-Content-Type-Options': 'nosniff',
-    'Referrer-Policy': 'strict-origin-when-cross-origin',
-    'X-Frame-Options': 'SAMEORIGIN'
-  });
+  res.set({ 'X-Content-Type-Options': 'nosniff', 'Referrer-Policy': 'strict-origin-when-cross-origin', 'X-Frame-Options': 'SAMEORIGIN' });
   next();
 });
 
-// ───────────── 서브도메인 → 내부 경로 매핑 ─────────────
-// admin.도메인 → /admin/*, math.도메인 → /math/* ... (로컬에서는 /math/ 처럼 경로로 접근)
-const SUBS = new Set([...SITE_KEYS, 'admin']);
+// ───────────── 호스트 → 내부 경로 매핑 ─────────────
+// admin.도메인 → /admin/*  (로컬·도메인 미설정 시 /admin/ 경로로 접근)
 app.use((req, res, next) => {
   if (!DOMAIN) return next();
   const host = (req.hostname || '').toLowerCase();
-  if (!host.endsWith('.' + DOMAIN)) return next();
-  const sub = host.slice(0, -(DOMAIN.length + 1));
-  if (SUBS.has(sub) && !req.url.startsWith('/api/') && !req.url.startsWith('/assets/')) {
-    req.url = '/' + sub + req.url;
+  if (host === 'admin.' + DOMAIN) {
+    if (!req.url.startsWith('/api/') && !req.url.startsWith('/assets/')) req.url = '/admin' + req.url;
+  } else if (host === DOMAIN || host === 'www.' + DOMAIN) {
+    if (req.path === '/admin' || req.path.startsWith('/admin/') || req.path.startsWith('/api/admin')) {
+      return res.status(404).type('text').send('Not found'); // 어드민은 admin 서브도메인에서만
+    }
   }
   next();
 });
 
-// ───────────── CORS: GitHub Pages 등 외부 정적 사이트 → 방문 비콘만 허용 ─────────────
+// ───────────── CORS: GitHub Pages 등 외부 정적 사이트 → 접속 기록 API 만 허용 ─────────────
 const CORS_ORIGINS = new Set((process.env.CORS_ORIGINS || '').split(',').map((s) => s.trim().replace(/\/$/, '')).filter(Boolean));
-app.use(['/api/track', '/api/click'], (req, res, next) => {
+app.use(['/api/track', '/api/event'], (req, res, next) => {
   const origin = req.get('origin');
-  if (origin && CORS_ORIGINS.has(origin)) {
-    res.set({ 'Access-Control-Allow-Origin': origin, 'Vary': 'Origin', 'Access-Control-Allow-Methods': 'POST, OPTIONS', 'Access-Control-Allow-Headers': 'Content-Type', 'Access-Control-Max-Age': '86400' });
-  }
-  if (req.method === 'OPTIONS') return res.sendStatus(origin && CORS_ORIGINS.has(origin) ? 204 : 403);
+  const ok = origin && CORS_ORIGINS.has(origin);
+  if (ok) res.set({ 'Access-Control-Allow-Origin': origin, 'Vary': 'Origin', 'Access-Control-Allow-Methods': 'POST, OPTIONS', 'Access-Control-Allow-Headers': 'Content-Type', 'Access-Control-Max-Age': '86400' });
+  if (req.method === 'OPTIONS') return res.sendStatus(ok ? 204 : 403);
   next();
 });
 
 app.use(express.json({ limit: '200kb' }));
-app.use('/assets', express.static(path.join(__dirname, 'public/assets'), { maxAge: PROD ? '1d' : 0 }));
+app.use('/assets', express.static(path.join(__dirname, 'public/assets'), { maxAge: PROD ? '1h' : 0 }));
 
 // ───────────── 유틸 ─────────────
 function cookies(req) {
@@ -71,8 +67,9 @@ function cookies(req) {
   }
   return out;
 }
-const cookieFlags = `Path=/; SameSite=Lax${PROD ? '; Secure' : ''}`;
+const SECURE = PROD ? '; Secure' : '';
 const clip = (v, n) => String(v ?? '').replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f]/g, '').trim().slice(0, n);
+const isVid = (v) => /^[a-f0-9]{32}$/.test(v || '');
 
 const buckets = new Map();
 function rateLimit(name, max, windowMs) {
@@ -88,86 +85,75 @@ function rateLimit(name, max, windowMs) {
 setInterval(() => { const now = Date.now(); for (const [k, b] of buckets) if (b.reset < now) buckets.delete(k); }, 60_000).unref();
 
 const BOT_RE = /bot|crawl|spider|slurp|facebookexternalhit|preview|headless|curl|wget|python-requests|httpclient/i;
-function recordVisit(req, site, pathStr, referrer, vid) {
+const isBot = (req) => BOT_RE.test(req.get('user-agent') || '');
+
+function recordVisit(req, pathStr, referrer, vid) {
   const ua = clip(req.get('user-agent'), 400);
   try {
-    insertVisit.run(site, clip(pathStr, 300), req.ip || '', ua, clip(referrer, 400), vid,
+    insertVisit.run(SITE_KEY, clip(pathStr, 300), req.ip || '', ua, clip(referrer, 400), vid,
       /Mobi|Android|iPhone|iPad/i.test(ua) ? 1 : 0, BOT_RE.test(ua) ? 1 : 0);
   } catch (e) { console.error('visit log failed', e); }
 }
-function logVisit(req, res, site) {
-  let vid = cookies(req).vid;
-  if (!/^[a-f0-9]{32}$/.test(vid || '')) {
-    vid = crypto.randomBytes(16).toString('hex');
-    res.append('Set-Cookie', `vid=${vid}; Max-Age=31536000; HttpOnly; ${cookieFlags}`);
-  }
-  recordVisit(req, site, req.originalUrl, req.get('referer'), vid);
-}
 
-const siteLink = (key) => (DOMAIN ? `https://${key}.${DOMAIN}/` : `/${key}/`);
-
-// ───────────── 공개: 포털 & 하위 사이트 ─────────────
+// ───────────── 공개: 사이트 ─────────────
+const canonical = DOMAIN ? `https://${DOMAIN}/` : undefined;
 app.get('/', (req, res) => {
-  const sites = listSites().filter((s) => s.status !== 'hidden');
-  res.type('html').send(renderPortal(sites, siteLink));
-});
-
-// 어드민 정적 파일 (/admin/ → index.html)
-app.use('/admin', express.static(path.join(__dirname, 'public/admin'), { maxAge: 0 }));
-
-app.get('/:key', (req, res, next) => {
-  const key = req.params.key;
-  if (!SITE_KEYS.includes(key)) return next();
-  if (!req.path.endsWith('/')) return res.redirect(301, `/${key}/`);
-  const site = getSite(key);
-  if (!site || site.status === 'hidden') return next();
-  logVisit(req, res, key);
+  const site = getSite();
+  let vid = cookies(req).vid;
+  if (!isVid(vid)) {
+    vid = crypto.randomBytes(16).toString('hex');
+    res.append('Set-Cookie', `vid=${vid}; Max-Age=31536000; HttpOnly; Path=/; SameSite=Lax${SECURE}`);
+  }
+  recordVisit(req, req.originalUrl, req.get('referer'), vid);
   res.set('Cache-Control', 'no-store');
   if (site.status === 'maintenance') return res.status(503).type('html').send(renderMaintenance(site));
-  res.type('html').send(renderSite(site));
+  res.type('html').send(renderSite(site, { canonical }));
 });
+// 기존 과목별 주소 → 통합 페이지 해당 과목
+for (const s of SUBJECTS) app.get([`/${s}`, `/${s}/`], (req, res) => res.redirect(301, `/#subject-${s}`));
 
-// ───────────── 공개 API: 방문 비콘 (정적 호스팅용) ─────────────
+app.use('/admin', express.static(path.join(__dirname, 'public/admin'), { maxAge: 0 }));
+
+// ───────────── 공개 API: 접속 기록 (정적 호스팅용 비콘) ─────────────
 app.post('/api/track', rateLimit('track', 120, 60_000), (req, res) => {
   const b = req.body || {};
-  if (!SITE_KEYS.includes(b.site)) return res.status(400).json({ error: 'bad site' });
-  const vid = /^[a-f0-9]{32}$/.test(b.vid || '') ? b.vid : crypto.randomBytes(16).toString('hex');
   const origin = req.get('origin') || '';
-  recordVisit(req, b.site, (origin ? origin.replace(/^https?:\/\//, '') : '') + clip(b.path, 250), b.referrer, vid);
+  recordVisit(req, (origin ? origin.replace(/^https?:\/\//, '') : '') + clip(b.path, 250), b.referrer, isVid(b.vid) ? b.vid : crypto.randomBytes(16).toString('hex'));
   res.status(204).end();
 });
 
-// ───────────── 공개 API: 클릭 이벤트 (서버 모드·정적 모드 공통) ─────────────
-app.post('/api/click', rateLimit('click', 300, 60_000), (req, res) => {
+// ───────────── 공개 API: 과목 노출·클릭 이벤트 ─────────────
+app.post('/api/event', rateLimit('event', 300, 60_000), (req, res) => {
   const b = req.body || {};
-  if (!SITE_KEYS.includes(b.site)) return res.status(400).json({ error: 'bad site' });
-  if (BOT_RE.test(req.get('user-agent') || '')) return res.status(204).end();
-  const vid = /^[a-f0-9]{32}$/.test(b.vid || '') ? b.vid : (cookies(req).vid || '');
-  insertClick.run(b.site, clip(b.label, 60), clip(b.href, 200), vid, req.ip || '');
+  if (!['view', 'click'].includes(b.kind)) return res.status(400).json({ error: 'bad kind' });
+  const subject = SUBJECTS.includes(b.subject) ? b.subject : null;
+  if (b.kind === 'view' && !subject) return res.status(400).json({ error: 'bad subject' });
+  if (isBot(req)) return res.status(204).end();
+  // 같은 origin(서버 모드)은 페이지 조회와 같은 쿠키 ID 사용, 외부(GitHub Pages)는 localStorage ID
+  const ck = cookies(req).vid;
+  const vid = isVid(ck) ? ck : isVid(b.vid) ? b.vid : '';
+  insertEvent.run(b.kind, subject, clip(b.label, 60), clip(b.href, 200), vid, req.ip || '');
   res.status(204).end();
 });
 
-// ───────────── 공개 API: 상담 신청 ─────────────
+// ───────────── 공개 API: 상담 신청 (같은 origin 만) ─────────────
 app.post('/api/inquiry', rateLimit('inq', 5, 10 * 60_000), (req, res) => {
   const b = req.body || {};
   if (b.website) return res.json({ ok: true }); // honeypot
-  const site = String(b.site || '');
-  const s = getSite(site);
-  if (!s || s.status !== 'live') return res.status(400).json({ error: '잘못된 요청입니다.' });
+  if (getSite().status !== 'live') return res.status(400).json({ error: '현재 상담 접수가 중단되었습니다.' });
   const name = clip(b.name, 40);
   const phone = clip(b.phone, 20);
   if (!name) return res.status(400).json({ error: '이름을 입력해 주세요.' });
   if (!/^[0-9+\-() ]{8,20}$/.test(phone)) return res.status(400).json({ error: '연락처를 정확히 입력해 주세요.' });
   if (!b.agree) return res.status(400).json({ error: '개인정보 수집·이용에 동의해 주세요.' });
-  insertInquiry.run(site, name, phone, clip(b.grade, 20), clip(b.subject, 60), clip(b.message, 1000), req.ip || '');
+  insertInquiry.run(SITE_KEY, name, phone, clip(b.grade, 20), clip(b.subject, 80), clip(b.message, 1000), req.ip || '');
   res.json({ ok: true });
 });
 
 // ───────────── 어드민 인증 ─────────────
 function sign(payload) {
   const body = Buffer.from(JSON.stringify(payload)).toString('base64url');
-  const sig = crypto.createHmac('sha256', SESSION_SECRET).update(body).digest('base64url');
-  return body + '.' + sig;
+  return body + '.' + crypto.createHmac('sha256', SESSION_SECRET).update(body).digest('base64url');
 }
 function verify(token) {
   if (!token || !token.includes('.')) return null;
@@ -175,125 +161,144 @@ function verify(token) {
   const expect = crypto.createHmac('sha256', SESSION_SECRET).update(body).digest('base64url');
   const a = Buffer.from(sig), b = Buffer.from(expect);
   if (a.length !== b.length || !crypto.timingSafeEqual(a, b)) return null;
-  try {
-    const p = JSON.parse(Buffer.from(body, 'base64url').toString());
-    return p.exp > Date.now() ? p : null;
-  } catch { return null; }
+  try { const p = JSON.parse(Buffer.from(body, 'base64url').toString()); return p.exp > Date.now() ? p : null; } catch { return null; }
 }
 const sha = (s) => crypto.createHash('sha256').update(String(s)).digest();
 const SESSION_HOURS = 12;
 
 app.post('/api/admin/login', rateLimit('login', 8, 15 * 60_000), (req, res) => {
-  const ok = crypto.timingSafeEqual(sha(req.body?.password ?? ''), sha(ADMIN_PASSWORD));
-  if (!ok) return res.status(401).json({ error: '비밀번호가 올바르지 않습니다.' });
+  if (!crypto.timingSafeEqual(sha(req.body?.password ?? ''), sha(ADMIN_PASSWORD))) return res.status(401).json({ error: '비밀번호가 올바르지 않습니다.' });
   const token = sign({ sub: 'admin', exp: Date.now() + SESSION_HOURS * 3600_000 });
-  res.append('Set-Cookie', `adm=${token}; Max-Age=${SESSION_HOURS * 3600}; HttpOnly; Path=/; SameSite=Strict${PROD ? '; Secure' : ''}`);
+  res.append('Set-Cookie', `adm=${token}; Max-Age=${SESSION_HOURS * 3600}; HttpOnly; Path=/; SameSite=Strict${SECURE}`);
   res.json({ ok: true });
 });
 app.post('/api/admin/logout', (req, res) => {
-  res.append('Set-Cookie', `adm=; Max-Age=0; HttpOnly; Path=/; SameSite=Strict${PROD ? '; Secure' : ''}`);
+  res.append('Set-Cookie', `adm=; Max-Age=0; HttpOnly; Path=/; SameSite=Strict${SECURE}`);
   res.json({ ok: true });
 });
 
 const admin = express.Router();
 admin.use((req, res, next) => {
   if (!verify(cookies(req).adm)) return res.status(401).json({ error: '로그인이 필요합니다.' });
-  // CSRF 방어: 본문이 있는 변경 요청은 JSON 만 허용 (SameSite=Strict 쿠키와 병행).
-  // DELETE 는 HTML 폼으로 교차 사이트 전송이 불가능하므로 본문 없이 허용.
+  // CSRF: 본문 있는 변경 요청은 JSON 만 (SameSite=Strict 와 병행). DELETE 는 폼으로 교차 전송 불가.
   if (['POST', 'PUT', 'PATCH'].includes(req.method) && !req.is('application/json')) return res.status(415).json({ error: 'JSON 요청만 허용됩니다.' });
   res.set('Cache-Control', 'no-store');
   next();
 });
 app.use('/api/admin', admin);
 
-admin.get('/me', (req, res) => res.json({ ok: true, domain: DOMAIN, links: Object.fromEntries(SITE_KEYS.map((k) => [k, siteLink(k)])) }));
+admin.get('/me', (req, res) => res.json({ ok: true, domain: DOMAIN, siteUrl: DOMAIN ? `https://${DOMAIN}/` : '/', subjects: SUBJECTS, subjectNames: SUBJECT_NAME }));
 
-// ── 통계
+const sinceExpr = (days) => `datetime('now','+9 hours','-${days - 1} days','start of day')`;
+const TODAY = `datetime('now','+9 hours','start of day')`;
+
+// ── 기간 통계 (페이지 조회 + 과목 노출·클릭)
 admin.get('/stats', (req, res) => {
   const days = Math.min(Math.max(parseInt(req.query.days) || 7, 1), 90);
-  const since = `datetime('now','+9 hours','-${days - 1} days','start of day')`;
-  const today = `datetime('now','+9 hours','start of day')`;
+  const since = sinceExpr(days);
   const bots = req.query.bots === '1' ? '' : 'AND bot = 0';
-
-  const perSite = db.prepare(`
-    SELECT site, COUNT(*) pv, COUNT(DISTINCT visitor) uv, SUM(mobile) mobile,
-           SUM(created_at >= ${today}) today_pv
-    FROM visits WHERE created_at >= ${since} ${bots} GROUP BY site`).all();
-  const daily = db.prepare(`
-    SELECT date(created_at) d, site, COUNT(*) pv FROM visits
-    WHERE created_at >= ${since} ${bots} GROUP BY d, site ORDER BY d`).all();
-  const referrers = db.prepare(`
-    SELECT referrer, COUNT(*) n FROM visits
-    WHERE created_at >= ${since} ${bots} AND referrer <> '' GROUP BY referrer ORDER BY n DESC LIMIT 200`).all();
-  const hourly = db.prepare(`
-    SELECT CAST(strftime('%H', created_at) AS INTEGER) h, COUNT(*) n FROM visits
+  const totals = db.prepare(`SELECT COUNT(*) pv, COUNT(DISTINCT visitor) uv, SUM(mobile) mobile, SUM(created_at >= ${TODAY}) today_pv
+    FROM visits WHERE created_at >= ${since} ${bots}`).get();
+  const dailyPv = db.prepare(`SELECT date(created_at) d, COUNT(*) n FROM visits WHERE created_at >= ${since} ${bots} GROUP BY d`).all();
+  const dailySubj = db.prepare(`SELECT date(created_at) d, subject, COUNT(*) n FROM events
+    WHERE kind = 'view' AND created_at >= ${since} GROUP BY d, subject`).all();
+  const hourly = db.prepare(`SELECT CAST(strftime('%H', created_at) AS INTEGER) h, COUNT(*) n FROM visits
     WHERE created_at >= ${since} ${bots} GROUP BY h`).all();
-  const inq = db.prepare(`
-    SELECT site, COUNT(*) total, SUM(status='new') pending FROM inquiries
-    WHERE created_at >= ${since} GROUP BY site`).all();
+  const subj = db.prepare(`SELECT subject, SUM(kind='view') views, SUM(kind='click') clicks FROM events
+    WHERE created_at >= ${since} AND subject IS NOT NULL GROUP BY subject`).all();
+  const referrers = db.prepare(`SELECT referrer, COUNT(*) n FROM visits
+    WHERE created_at >= ${since} ${bots} AND referrer <> '' GROUP BY referrer ORDER BY n DESC LIMIT 200`).all();
+  const inqTotal = db.prepare(`SELECT COUNT(*) n FROM inquiries WHERE created_at >= ${since}`).get().n;
   const pendingAll = db.prepare(`SELECT COUNT(*) n FROM inquiries WHERE status='new'`).get().n;
 
-  // 리퍼러는 도메인 단위로 묶기 (자기 사이트 제외)
   const refMap = {};
   for (const r of referrers) {
     let h; try { h = new URL(r.referrer).hostname; } catch { h = r.referrer; }
     if (DOMAIN && (h === DOMAIN || h.endsWith('.' + DOMAIN))) continue;
-    if (!DOMAIN && /^(localhost|127\.0\.0\.1)$/.test(h)) continue;
+    if (/^(localhost|127\.0\.0\.1)$/.test(h) || h.endsWith('.github.io') || h.endsWith('.trycloudflare.com')) continue;
     refMap[h] = (refMap[h] || 0) + r.n;
   }
   const topReferrers = Object.entries(refMap).sort((a, b) => b[1] - a[1]).slice(0, 10).map(([host, n]) => ({ host, n }));
-
-  res.json({ days, sites: SITE_KEYS, perSite, daily, hourly, topReferrers, inquiries: inq, pendingAll });
+  const subjects = SUBJECTS.map((s) => {
+    const r = subj.find((x) => x.subject === s) || {};
+    const views = r.views || 0, clicks = r.clicks || 0;
+    return { subject: s, views, clicks, ctr: views ? Math.round((clicks / views) * 1000) / 10 : 0 };
+  });
+  res.json({ days, totals, dailyPv, dailySubj, hourly, subjects, topReferrers, inqTotal, pendingAll });
 });
 
-// ── 접속 기록
+// ── 누적 과목 순위 (전체 기간): 노출 · 클릭 · 클릭률(클릭 ÷ 노출) · 많이 클릭된 항목
+admin.get('/ranking', (req, res) => {
+  const agg = db.prepare(`SELECT subject, SUM(kind='view') views, SUM(kind='click') clicks,
+      COUNT(DISTINCT CASE WHEN kind='view' THEN visitor END) viewers, MAX(created_at) last_at
+    FROM events WHERE subject IS NOT NULL GROUP BY subject`).all();
+  const labels = db.prepare(`SELECT subject, label, COUNT(*) n FROM events WHERE kind='click' AND subject IS NOT NULL
+    GROUP BY subject, label ORDER BY n DESC`).all();
+  const page = db.prepare(`SELECT COUNT(*) pv, COUNT(DISTINCT visitor) uv FROM visits WHERE bot = 0`).get();
+  const rows = SUBJECTS.map((s) => {
+    const a = agg.find((x) => x.subject === s) || {};
+    const views = a.views || 0, clicks = a.clicks || 0;
+    return {
+      subject: s, views, clicks, viewers: a.viewers || 0, lastAt: a.last_at || null,
+      ctr: views ? Math.round((clicks / views) * 1000) / 10 : 0,
+      topClicks: labels.filter((x) => x.subject === s).slice(0, 5).map(({ label, n }) => ({ label, n }))
+    };
+  }).sort((a, b) => b.views - a.views || b.ctr - a.ctr);
+  rows.forEach((r, i) => (r.rank = i + 1));
+  const top = (k) => rows.reduce((a, b) => (b[k] > a[k] ? b : a), rows[0]);
+  res.json({
+    page, rows,
+    mostViewed: rows[0].views ? rows[0].subject : null,
+    mostClicked: top('clicks').clicks ? top('clicks').subject : null,
+    bestCtr: top('ctr').ctr ? top('ctr').subject : null
+  });
+});
+
+// ── 접속 기록 (페이지 조회)
 admin.get('/visits', (req, res) => {
   const limit = Math.min(parseInt(req.query.limit) || 50, 200);
   const offset = Math.max(parseInt(req.query.offset) || 0, 0);
   const where = []; const args = [];
-  if (SITE_KEYS.includes(req.query.site)) { where.push('site = ?'); args.push(req.query.site); }
   if (req.query.bots !== '1') where.push('bot = 0');
-  if (req.query.q) { where.push('(ip LIKE ? OR ua LIKE ? OR referrer LIKE ?)'); const q = `%${clip(req.query.q, 60)}%`; args.push(q, q, q); }
+  if (req.query.q) { where.push('(ip LIKE ? OR ua LIKE ? OR referrer LIKE ? OR path LIKE ?)'); const q = `%${clip(req.query.q, 60)}%`; args.push(q, q, q, q); }
   const w = where.length ? 'WHERE ' + where.join(' AND ') : '';
   const total = db.prepare(`SELECT COUNT(*) n FROM visits ${w}`).get(...args).n;
   const rows = db.prepare(`SELECT * FROM visits ${w} ORDER BY id DESC LIMIT ? OFFSET ?`).all(...args, limit, offset);
+  // 각 방문자가 본·클릭한 과목 요약 (해당 방문 이후 30분 이내 이벤트)
+  const evStmt = db.prepare(`SELECT kind, subject FROM events WHERE visitor = ? AND subject IS NOT NULL
+    AND created_at BETWEEN ? AND datetime(?, '+30 minutes')`);
+  for (const r of rows) {
+    const ev = r.visitor ? evStmt.all(r.visitor, r.created_at, r.created_at) : [];
+    r.viewed = [...new Set(ev.filter((e) => e.kind === 'view').map((e) => e.subject))];
+    r.clicked = [...new Set(ev.filter((e) => e.kind === 'click').map((e) => e.subject))];
+  }
   res.json({ total, rows });
 });
+
+// ── 클릭 기록
+admin.get('/events', (req, res) => {
+  const limit = Math.min(parseInt(req.query.limit) || 50, 200);
+  const offset = Math.max(parseInt(req.query.offset) || 0, 0);
+  const where = ["kind = 'click'"]; const args = [];
+  if (SUBJECTS.includes(req.query.subject)) { where.push('subject = ?'); args.push(req.query.subject); }
+  const w = 'WHERE ' + where.join(' AND ');
+  const total = db.prepare(`SELECT COUNT(*) n FROM events ${w}`).get(...args).n;
+  const rows = db.prepare(`SELECT * FROM events ${w} ORDER BY id DESC LIMIT ? OFFSET ?`).all(...args, limit, offset);
+  res.json({ total, rows });
+});
+
 admin.post('/visits/purge', (req, res) => {
   const days = Math.max(parseInt(req.body?.olderThanDays) || 0, 1);
   const cut = `datetime('now','+9 hours','-${days} days')`;
   const r = db.prepare(`DELETE FROM visits WHERE created_at < ${cut}`).run();
-  db.prepare(`DELETE FROM clicks WHERE created_at < ${cut}`).run();
+  db.prepare(`DELETE FROM events WHERE created_at < ${cut}`).run();
   res.json({ ok: true, deleted: Number(r.changes) });
-});
-
-// ── 누적 순위: 사이트별 조회수 · 방문자 · 클릭 수 · 클릭률(클릭 ÷ 조회수)
-admin.get('/ranking', (req, res) => {
-  const views = db.prepare(`SELECT site, COUNT(*) pv, COUNT(DISTINCT visitor) uv, MIN(created_at) first_at, MAX(created_at) last_at
-    FROM visits WHERE bot = 0 GROUP BY site`).all();
-  const clicks = db.prepare(`SELECT site, COUNT(*) clicks, COUNT(DISTINCT visitor) clickers FROM clicks GROUP BY site`).all();
-  const labels = db.prepare(`SELECT site, label, COUNT(*) n FROM clicks GROUP BY site, label ORDER BY n DESC`).all();
-  const rows = SITE_KEYS.map((site) => {
-    const v = views.find((x) => x.site === site) || {};
-    const c = clicks.find((x) => x.site === site) || {};
-    const pv = v.pv || 0, cl = c.clicks || 0;
-    return {
-      site, pv, uv: v.uv || 0, clicks: cl, clickers: c.clickers || 0,
-      ctr: pv ? Math.round((cl / pv) * 1000) / 10 : 0,
-      firstAt: v.first_at || null, lastAt: v.last_at || null,
-      topClicks: labels.filter((x) => x.site === site).slice(0, 5).map(({ label, n }) => ({ label, n }))
-    };
-  }).sort((a, b) => b.pv - a.pv || b.ctr - a.ctr);
-  rows.forEach((r, i) => (r.rank = i + 1));
-  const best = (k) => rows.reduce((a, b) => (b[k] > a[k] ? b : a), rows[0]);
-  res.json({ rows, mostViewed: rows[0]?.pv ? rows[0].site : null, bestCtr: best('ctr')?.ctr ? best('ctr').site : null });
 });
 
 // ── 상담 신청
 const INQ_STATUS = ['new', 'contacted', 'enrolled', 'closed'];
 admin.get('/inquiries', (req, res) => {
   const where = []; const args = [];
-  if (SITE_KEYS.includes(req.query.site)) { where.push('site = ?'); args.push(req.query.site); }
   if (INQ_STATUS.includes(req.query.status)) { where.push('status = ?'); args.push(req.query.status); }
   const w = where.length ? 'WHERE ' + where.join(' AND ') : '';
   res.json({ rows: db.prepare(`SELECT * FROM inquiries ${w} ORDER BY id DESC LIMIT 500`).all(...args) });
@@ -313,12 +318,13 @@ admin.delete('/inquiries/:id', (req, res) => {
 });
 
 // ── 사이트 관리
-admin.get('/sites', (req, res) => res.json({ sites: listSites(), fields: { text: TEXT_FIELDS, lists: LIST_FIELDS, statuses: STATUSES } }));
+admin.get('/site', (req, res) => res.json({
+  site: getSite(),
+  fields: { text: TEXT_FIELDS, lists: LIST_FIELDS, subjectFields: [...SUBJECT_FIELDS], statuses: STATUSES, subjects: SUBJECTS, subjectNames: SUBJECT_NAME }
+}));
 
-admin.put('/sites/:key', (req, res) => {
-  const key = req.params.key;
-  const cur = getSite(key);
-  if (!cur) return res.status(404).json({ error: '없는 사이트' });
+admin.put('/site', (req, res) => {
+  const cur = getSite();
   const b = req.body || {};
   const status = STATUSES.includes(b.status) ? b.status : cur.status;
   const data = {};
@@ -328,23 +334,28 @@ admin.put('/sites/:key', (req, res) => {
   if (!data.name) return res.status(400).json({ error: '사이트 이름은 필수입니다.' });
   for (const [list, keys] of Object.entries(LIST_FIELDS)) {
     const src = Array.isArray(b[list]) ? b[list] : cur[list] || [];
-    data[list] = src.slice(0, 20).map((item) => Object.fromEntries(keys.map((k) => [k, clip(item?.[k], 400)])))
-      .filter((item) => keys.some((k) => item[k]));
+    data[list] = src.slice(0, 30).map((item) => Object.fromEntries(keys.map((k) => [k, clip(item?.[k], 400)])))
+      .filter((item) => keys.some((k) => !SUBJECT_FIELDS.has(k) && item[k]));
+    for (const item of data[list]) {
+      for (const k of keys) if (SUBJECT_FIELDS.has(k) && !SUBJECTS.includes(item[k])) return res.status(400).json({ error: `${list}: 과목은 ${SUBJECTS.join('/')} 중 하나여야 합니다.` });
+    }
   }
-  saveSite(key, data, status);
-  res.json({ ok: true, site: getSite(key) });
+  const keys = data.subjects.map((s) => s.key);
+  if (new Set(keys).size !== keys.length) return res.status(400).json({ error: '같은 과목이 중복되었습니다.' });
+  saveSite(data, status);
+  res.json({ ok: true, site: getSite() });
 });
 
 // ───────────── 404 / 에러 ─────────────
 app.use('/api', (req, res) => res.status(404).json({ error: 'Not found' }));
-app.use((req, res) => res.status(404).type('html').send('<!doctype html><meta charset="utf-8"><title>404</title><p style="font-family:sans-serif;padding:40px">페이지를 찾을 수 없습니다.</p>'));
+app.use((req, res) => res.status(404).type('html').send('<!doctype html><meta charset="utf-8"><title>404</title><p style="font-family:sans-serif;padding:40px">페이지를 찾을 수 없습니다. <a href="/">처음으로</a></p>'));
 app.use((err, req, res, next) => {
-  console.error(err);
   if (err.type === 'entity.parse.failed') return res.status(400).json({ error: '잘못된 JSON' });
+  console.error(err);
   res.status(500).json({ error: '서버 오류' });
 });
 
 app.listen(PORT, () => {
   console.log(`▶ http://localhost:${PORT}  (도메인: ${DOMAIN || '미설정 – 경로 모드'})`);
-  if (!DOMAIN) console.log(`  사이트: ${SITE_KEYS.map((k) => `/${k}/`).join(' ')}   어드민: /admin/`);
+  console.log(DOMAIN ? `  사이트: https://${DOMAIN}/   어드민: https://admin.${DOMAIN}/` : '  사이트: /   어드민: /admin/');
 });

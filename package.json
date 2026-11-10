@@ -1,9 +1,9 @@
 {
-  "name": "tutor-sites",
+  "name": "firstteacher",
   "version": "1.0.0",
   "private": true,
   "type": "module",
-  "description": "과외 사이트 3종 + 어드민 (Express + SQLite)",
+  "description": "퍼스트티쳐 (수학·영어·코딩 과외) + 어드민 (Express + SQLite)",
   "engines": {
     "node": ">=22.13"
   },

@@ -77,3 +77,54 @@
 .theme-material .toast { background: #313033; color: #f4eff4; border-radius: 4px; box-shadow: var(--elev-3); }
 .theme-material.maintenance { background: var(--surface-1); }
 .theme-material .maint { border-radius: 28px; }
+
+/* ─── 퍼스트티쳐: 과목 섹션 ─── */
+:root { --s-math: #00897b; --s-english: #6750a4; --s-coding: #1565c0; }
+.subj-math { --s: var(--s-math); }
+.subj-english { --s: var(--s-english); }
+.subj-coding { --s: var(--s-coding); }
+.subj-math, .subj-english, .subj-coding { --s-soft: color-mix(in srgb, var(--s) 12%, #fff); --s-on: color-mix(in srgb, var(--s) 75%, #000); }
+
+/* 히어로: 과목 카드 스택 */
+.hero-stack { position: relative; height: 360px; width: 100%; max-width: 380px; justify-self: center; }
+.stack-card {
+  position: absolute; width: 62%; aspect-ratio: 1; border-radius: 32px; display: grid; place-content: center; justify-items: center; gap: 6px;
+  color: #fff; box-shadow: var(--elev-3); transition: transform .3s;
+  left: calc(var(--i) * 19%); top: calc(var(--i) * 14%); transform: rotate(calc((var(--i) - 1) * 7deg));
+}
+.stack-card b { font-size: 52px; line-height: 1; font-weight: 800; }
+.stack-card span { font-weight: 700; font-size: 18px; opacity: .92; }
+.stack-card.sc-math { background: var(--s-math); }
+.stack-card.sc-english { background: var(--s-english); }
+.stack-card.sc-coding { background: var(--s-coding); font-family: Consolas, monospace; }
+.hero-stack:hover .stack-card { transform: rotate(calc((var(--i) - 1) * 10deg)) translateY(calc((var(--i) - 1) * -6px)); }
+@media (max-width: 820px) { .hero-stack { height: 240px; max-width: 260px; order: -1; } .stack-card { border-radius: 24px; } .stack-card b { font-size: 36px; } }
+
+/* 과목 소개 카드 */
+.subject-card { display: flex; flex-direction: column; gap: 10px; border-top: 6px solid var(--s); }
+.subject-card p { flex: 1; }
+.subject-icon { width: 64px; height: 64px; border-radius: 20px; display: grid; place-items: center; font-size: 26px; font-weight: 800; background: var(--s-soft); color: var(--s-on); }
+.subject-icon.sm { width: 48px; height: 48px; border-radius: 14px; font-size: 18px; flex: none; }
+.subj-coding .subject-icon { font-family: Consolas, monospace; }
+.theme-material .subject-card .chip, .theme-material .tutor .chip { background: var(--s-soft); color: var(--s-on); border-color: transparent; }
+.theme-material .subject-card .btn-outline { color: var(--s); }
+
+/* 과목 탭 (sticky) */
+.subject-tabs { display: flex; gap: 8px; justify-content: center; flex-wrap: wrap; margin: -16px 0 32px; position: sticky; top: 76px; z-index: 5; }
+.subject-tabs .tab { padding: 10px 20px; border-radius: 100px; text-decoration: none; font-weight: 700; background: var(--s-soft); color: var(--s-on); box-shadow: var(--elev-1); }
+.subject-tabs .tab:hover { box-shadow: var(--elev-2); }
+
+/* 과목별 과정 블록 */
+.subject-block { padding: 28px; border-radius: 28px; background: var(--s-soft); margin-bottom: 24px; scroll-margin-top: 140px; }
+.subject-head { display: flex; align-items: center; gap: 14px; margin-bottom: 20px; }
+.subject-head .subject-icon { background: var(--s); color: #fff; }
+.subject-head h3 { margin: 0; font-size: 22px; color: var(--s-on); }
+.subject-head p { margin: 0; opacity: .8; }
+.subject-block .price { color: var(--s); }
+.subject-block .btn-outline { color: var(--s); }
+.empty-note { opacity: .7; }
+@media (max-width: 640px) { .subject-block { padding: 18px; border-radius: 20px; } .subject-tabs { top: 70px; } }
+
+/* 선생님 카드 과목 색 */
+.theme-material .tutor .avatar { background: var(--s-soft); color: var(--s-on); }
+.tutor .chip { margin-bottom: 6px; display: inline-block; }

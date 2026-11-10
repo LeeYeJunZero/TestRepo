@@ -1,6 +1,6 @@
 # /etc/systemd/system/tutor-sites.service
 [Unit]
-Description=Tutor sites (Express + SQLite)
+Description=FirstTeacher (Express + SQLite)
 After=network.target
 
 [Service]

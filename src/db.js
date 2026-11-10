@@ -1,7 +1,7 @@
 import { DatabaseSync } from 'node:sqlite';
 import fs from 'node:fs';
 import path from 'node:path';
-import { DEFAULT_SITES, SITE_KEYS } from './defaults.js';
+import { DEFAULT_SITE, SITE_KEY } from './defaults.js';
 
 const dataDir = path.resolve(process.env.DATA_DIR || 'data');
 fs.mkdirSync(dataDir, { recursive: true });
@@ -23,6 +23,7 @@ db.exec(`
     updated_at TEXT NOT NULL DEFAULT (${NOW})
   );
 
+  -- 페이지 조회 (페이지 로드 1회 = 1건)
   CREATE TABLE IF NOT EXISTS visits (
     id         INTEGER PRIMARY KEY AUTOINCREMENT,
     site       TEXT NOT NULL,
@@ -36,19 +37,21 @@ db.exec(`
     created_at TEXT NOT NULL DEFAULT (${NOW})
   );
   CREATE INDEX IF NOT EXISTS idx_visits_created ON visits(created_at);
-  CREATE INDEX IF NOT EXISTS idx_visits_site_created ON visits(site, created_at);
 
-  -- 클릭 이벤트 (버튼·링크). 클릭률 = 클릭 수 / 조회수(PV)
-  CREATE TABLE IF NOT EXISTS clicks (
+  -- 과목 이벤트: view = 과목 섹션이 화면에 노출됨(페이지 로드당 과목별 1회), click = 과목 영역 안 클릭
+  -- 과목 클릭률 = click ÷ view
+  CREATE TABLE IF NOT EXISTS events (
     id         INTEGER PRIMARY KEY AUTOINCREMENT,
-    site       TEXT NOT NULL,
+    kind       TEXT NOT NULL,
+    subject    TEXT,
     label      TEXT,
     href       TEXT,
     visitor    TEXT,
     ip         TEXT,
     created_at TEXT NOT NULL DEFAULT (${NOW})
   );
-  CREATE INDEX IF NOT EXISTS idx_clicks_site ON clicks(site, created_at);
+  CREATE INDEX IF NOT EXISTS idx_events_kind ON events(kind, subject, created_at);
+  CREATE INDEX IF NOT EXISTS idx_events_created ON events(created_at);
 
   CREATE TABLE IF NOT EXISTS inquiries (
     id         INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -66,33 +69,24 @@ db.exec(`
   CREATE INDEX IF NOT EXISTS idx_inq_created ON inquiries(created_at);
 `);
 
-// 시드
-const seed = db.prepare('INSERT OR IGNORE INTO sites (key, theme, status, data) VALUES (?, ?, ?, ?)');
-for (const key of SITE_KEYS) {
-  const s = DEFAULT_SITES[key];
-  seed.run(key, s.theme, s.status, JSON.stringify(s.data));
-}
+db.prepare('INSERT OR IGNORE INTO sites (key, theme, status, data) VALUES (?, ?, ?, ?)')
+  .run(SITE_KEY, DEFAULT_SITE.theme, DEFAULT_SITE.status, JSON.stringify(DEFAULT_SITE.data));
 
 const getStmt = db.prepare('SELECT * FROM sites WHERE key = ?');
-const listStmt = db.prepare('SELECT * FROM sites ORDER BY rowid');
 const saveStmt = db.prepare(`UPDATE sites SET data = ?, status = ?, updated_at = ${NOW} WHERE key = ?`);
 
-function hydrate(row) {
-  if (!row) return null;
+export function getSite() {
+  const row = getStmt.get(SITE_KEY);
   return { key: row.key, theme: row.theme, status: row.status, updatedAt: row.updated_at, ...JSON.parse(row.data) };
 }
-
-export const getSite = (key) => hydrate(getStmt.get(key));
-export const listSites = () => listStmt.all().map(hydrate);
-export const saveSite = (key, data, status) => saveStmt.run(JSON.stringify(data), status, key);
+export const saveSite = (data, status) => saveStmt.run(JSON.stringify(data), status, SITE_KEY);
 
 export const insertVisit = db.prepare(
   'INSERT INTO visits (site, path, ip, ua, referrer, visitor, mobile, bot) VALUES (?, ?, ?, ?, ?, ?, ?, ?)'
 );
-export const insertClick = db.prepare(
-  'INSERT INTO clicks (site, label, href, visitor, ip) VALUES (?, ?, ?, ?, ?)'
+export const insertEvent = db.prepare(
+  'INSERT INTO events (kind, subject, label, href, visitor, ip) VALUES (?, ?, ?, ?, ?, ?)'
 );
 export const insertInquiry = db.prepare(
   'INSERT INTO inquiries (site, name, phone, grade, subject, message, ip) VALUES (?, ?, ?, ?, ?, ?, ?)'
 );
-export { NOW };
