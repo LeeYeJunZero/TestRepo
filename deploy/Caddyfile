@@ -1,0 +1,5 @@
+# /etc/caddy/Caddyfile — example.com 을 실제 도메인으로 바꾸세요. HTTPS 인증서는 자동 발급됩니다.
+example.com, www.example.com, admin.example.com, math.example.com, english.example.com, coding.example.com {
+	encode zstd gzip
+	reverse_proxy 127.0.0.1:3000
+}

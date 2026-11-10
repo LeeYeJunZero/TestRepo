@@ -1,0 +1,87 @@
+/* ─── FLUENT DESIGN (Fluent 2) ───
+   Mica/Acrylic 반투명 재질, 얇은 스트로크, 4–8px 라운드, 미세 그림자, Reveal 하이라이트 */
+:root {
+  --primary: #0f6cbd;
+  --primary-hover: color-mix(in srgb, var(--primary) 85%, #000);
+  --text: #242424;
+  --text-2: #616161;
+  --bg: #f5f5f5;
+  --stroke: rgba(0,0,0,.08);
+  --stroke-strong: #d1d1d1;
+  --card: rgba(255,255,255,.78);
+  --shadow-2: 0 0 2px rgba(0,0,0,.12), 0 1px 2px rgba(0,0,0,.14);
+  --shadow-8: 0 0 2px rgba(0,0,0,.12), 0 4px 8px rgba(0,0,0,.14);
+  --shadow-28: 0 0 8px rgba(0,0,0,.12), 0 14px 28px rgba(0,0,0,.14);
+  --font: "Segoe UI Variable Text", "Segoe UI", "Pretendard Variable", Pretendard, system-ui, sans-serif;
+  --notice-bg: color-mix(in srgb, var(--primary) 12%, #fff);
+  --notice-fg: var(--primary-hover);
+}
+
+/* Mica 배경 */
+.theme-fluent {
+  background:
+    radial-gradient(1200px 600px at 85% -10%, color-mix(in srgb, var(--primary) 18%, transparent), transparent 60%),
+    radial-gradient(900px 500px at -10% 30%, rgba(122, 90, 248, .10), transparent 60%),
+    var(--bg);
+  background-attachment: fixed;
+}
+
+/* Acrylic 네비게이션 */
+.theme-fluent .nav { background: rgba(252,252,252,.72); backdrop-filter: blur(30px) saturate(150%); -webkit-backdrop-filter: blur(30px) saturate(150%); border-bottom: 1px solid var(--stroke); }
+.theme-fluent .brand-mark { background: var(--primary); color: #fff; border-radius: 6px; font-family: Consolas, "Cascadia Code", monospace; }
+.theme-fluent .nav-links a:not(.btn) { border-radius: 4px; color: var(--text); }
+.theme-fluent .nav-links a:not(.btn):hover { background: rgba(0,0,0,.05); }
+@media (max-width: 820px) { .theme-fluent .nav-links { background: rgba(252,252,252,.92); backdrop-filter: blur(30px); border-bottom: 1px solid var(--stroke); } }
+
+/* Buttons */
+.theme-fluent .btn { border-radius: 4px; border-width: 1px; font-weight: 600; }
+.theme-fluent .btn-primary { background: var(--primary); color: #fff; border-color: transparent; }
+.theme-fluent .btn-primary:hover { background: var(--primary-hover); }
+.theme-fluent .btn-primary:active { transform: scale(.98); }
+.theme-fluent .btn-ghost, .theme-fluent .btn-outline { background: #fff; color: var(--text); border-color: var(--stroke-strong); border-bottom-color: #b3b3b3; }
+.theme-fluent .btn-ghost:hover, .theme-fluent .btn-outline:hover { background: #f5f5f5; }
+
+/* Hero */
+.theme-fluent .eyebrow { color: var(--primary); font-weight: 600; }
+.theme-fluent .hero h1 { font-weight: 700; }
+.theme-fluent .lead { color: var(--text-2); }
+.theme-fluent .art-shape { border-radius: 8px; border: 1px solid rgba(255,255,255,.6); backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px); box-shadow: var(--shadow-28); }
+.theme-fluent .art-shape.s1 { inset: 4% 20% 30% 4%; background: linear-gradient(135deg, color-mix(in srgb, var(--primary) 85%, #fff), var(--primary)); }
+.theme-fluent .art-shape.s2 { inset: 30% 4% 4% 26%; background: rgba(255,255,255,.55); z-index: 1; }
+.theme-fluent .art-shape.s3 { right: 6%; top: 8%; width: 26%; height: 26%; border-radius: 50%; background: linear-gradient(135deg, #8e6cf8, #c084fc); }
+.theme-fluent .art-symbol { z-index: 2; color: var(--primary); font-family: Consolas, "Cascadia Code", monospace; inset: 30% 4% 4% 26%; font-size: clamp(44px, 7vw, 80px); }
+
+/* Cards (Reveal 하이라이트는 site.js 에서 --mx/--my 설정) */
+.theme-fluent .section-alt { background: rgba(255,255,255,.45); border-block: 1px solid var(--stroke); }
+.theme-fluent .card {
+  background: var(--card); border: 1px solid var(--stroke); border-radius: 8px; box-shadow: var(--shadow-2);
+  backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px); transition: box-shadow .2s, transform .2s;
+}
+.theme-fluent .card::before {
+  content: ""; position: absolute; inset: 0; border-radius: inherit; pointer-events: none; opacity: 0; transition: opacity .2s;
+  background: radial-gradient(240px circle at var(--mx, 50%) var(--my, 50%), color-mix(in srgb, var(--primary) 12%, transparent), transparent 70%);
+}
+.theme-fluent .card:hover { box-shadow: var(--shadow-8); }
+.theme-fluent .card:hover::before { opacity: 1; }
+.theme-fluent .card p { color: var(--text-2); opacity: 1; }
+.theme-fluent .feature-icon { background: color-mix(in srgb, var(--primary) 10%, #fff); border-radius: 8px; border: 1px solid var(--stroke); }
+.theme-fluent .chip { border-radius: 4px; background: color-mix(in srgb, var(--primary) 10%, #fff); color: var(--primary-hover); }
+.theme-fluent .price { color: var(--text); }
+.theme-fluent .avatar { border-radius: 50%; background: linear-gradient(135deg, var(--primary), #8e6cf8); color: #fff; }
+.theme-fluent .faq summary::after { content: "⌄"; font-size: 18px; }
+.theme-fluent .faq[open] summary::after { transform: rotate(180deg); }
+
+/* Inputs: 하단 강조선 */
+.theme-fluent input, .theme-fluent select, .theme-fluent textarea {
+  border: 1px solid var(--stroke-strong); border-bottom-color: #616161; border-radius: 4px; background: #fff;
+}
+.theme-fluent input:focus, .theme-fluent select:focus, .theme-fluent textarea:focus {
+  outline: none; border-bottom: 2px solid var(--primary); padding-bottom: 11px;
+}
+.theme-fluent .apply-form { box-shadow: var(--shadow-8); }
+
+.theme-fluent .footer { border-top: 1px solid var(--stroke); background: rgba(255,255,255,.6); color: var(--text-2); }
+.theme-fluent .fab { background: var(--primary); color: #fff; border-radius: 8px; box-shadow: var(--shadow-28); }
+.theme-fluent .fab:hover { background: var(--primary-hover); }
+.theme-fluent .toast { background: rgba(255,255,255,.9); backdrop-filter: blur(30px); border: 1px solid var(--stroke); border-radius: 8px; box-shadow: var(--shadow-28); color: var(--text); }
+.theme-fluent .maint { border-radius: 8px; }

@@ -1,0 +1,103 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="robots" content="noindex,nofollow">
+<title>과외 사이트 어드민</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
+<link rel="stylesheet" href="admin.css">
+</head>
+<body>
+
+<!-- 로그인 -->
+<section id="login" class="login" hidden>
+  <form class="login-card" id="loginForm">
+    <div class="logo">A</div>
+    <h1>어드민 로그인</h1>
+    <label class="field"><span>비밀번호</span><input type="password" name="password" autocomplete="current-password" required autofocus></label>
+    <button class="btn primary block" type="submit">로그인</button>
+    <p class="err" id="loginErr" role="alert"></p>
+  </form>
+</section>
+
+<!-- 앱 -->
+<div id="app" class="app" hidden>
+  <aside class="side">
+    <div class="side-brand"><div class="logo sm">A</div><b>과외 어드민</b></div>
+    <nav class="side-nav">
+      <button data-tab="dash" class="active"><i>▦</i>대시보드</button>
+      <button data-tab="visits"><i>☰</i>접속 기록</button>
+      <button data-tab="inq"><i>✉</i>상담 신청 <span class="badge" id="pendingBadge" hidden></span></button>
+      <button data-tab="sites"><i>⚙</i>사이트 관리</button>
+    </nav>
+    <div class="side-foot">
+      <div class="site-links" id="siteLinks"></div>
+      <button class="btn subtle block" id="logout">로그아웃</button>
+    </div>
+  </aside>
+
+  <main class="main">
+    <!-- 대시보드 -->
+    <section data-panel="dash">
+      <header class="page-head">
+        <h1>대시보드</h1>
+        <div class="seg" id="daysSeg">
+          <button data-days="1">오늘</button><button data-days="7" class="on">7일</button><button data-days="30">30일</button><button data-days="90">90일</button>
+        </div>
+      </header>
+      <div class="kpis" id="kpis"></div>
+      <div class="grid2">
+        <div class="panel"><h2>일별 방문수 (PV)</h2><div id="chartDaily" class="chart"></div><div class="legend" id="legend"></div></div>
+        <div class="panel"><h2>시간대별 방문</h2><div id="chartHourly" class="chart"></div></div>
+      </div>
+      <div class="grid2">
+        <div class="panel"><h2>사이트별 요약</h2><div id="siteTable"></div></div>
+        <div class="panel"><h2>유입 경로 TOP 10</h2><div id="refTable"></div></div>
+      </div>
+    </section>
+
+    <!-- 접속 기록 -->
+    <section data-panel="visits" hidden>
+      <header class="page-head">
+        <h1>접속 기록</h1>
+        <div class="tools">
+          <select id="vSite"><option value="">전체 사이트</option></select>
+          <input id="vQ" placeholder="IP / 브라우저 / 유입경로 검색">
+          <label class="check"><input type="checkbox" id="vBots"> 봇 포함</label>
+          <button class="btn subtle" id="vPurge">30일 이전 기록 삭제</button>
+        </div>
+      </header>
+      <div class="panel flush">
+        <div class="table-wrap"><table class="tbl" id="vTable"></table></div>
+        <div class="pager"><button class="btn subtle" id="vPrev">이전</button><span id="vInfo"></span><button class="btn subtle" id="vNext">다음</button></div>
+      </div>
+    </section>
+
+    <!-- 상담 신청 -->
+    <section data-panel="inq" hidden>
+      <header class="page-head">
+        <h1>상담 신청</h1>
+        <div class="tools">
+          <select id="iSite"><option value="">전체 사이트</option></select>
+          <select id="iStatus"><option value="">전체 상태</option><option value="new">신규</option><option value="contacted">연락완료</option><option value="enrolled">등록</option><option value="closed">종료</option></select>
+        </div>
+      </header>
+      <div id="inqList" class="inq-list"></div>
+    </section>
+
+    <!-- 사이트 관리 -->
+    <section data-panel="sites" hidden>
+      <header class="page-head">
+        <h1>사이트 관리</h1>
+        <div class="seg" id="siteSeg"></div>
+      </header>
+      <form id="siteForm" class="site-form"></form>
+    </section>
+  </main>
+</div>
+
+<div class="toast" id="toast" role="status" aria-live="polite"></div>
+<script src="admin.js"></script>
+</body>
+</html>

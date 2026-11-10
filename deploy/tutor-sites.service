@@ -1,0 +1,18 @@
+# /etc/systemd/system/tutor-sites.service
+[Unit]
+Description=Tutor sites (Express + SQLite)
+After=network.target
+
+[Service]
+Type=simple
+User=tutor
+WorkingDirectory=/opt/tutor-sites
+ExecStart=/usr/bin/node --env-file=/opt/tutor-sites/.env server.js
+Restart=always
+RestartSec=3
+NoNewPrivileges=true
+ProtectSystem=full
+ReadWritePaths=/opt/tutor-sites/data
+
+[Install]
+WantedBy=multi-user.target

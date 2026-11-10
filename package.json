@@ -1,0 +1,20 @@
+{
+  "name": "tutor-sites",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "과외 사이트 3종 + 어드민 (Express + SQLite)",
+  "engines": {
+    "node": ">=22.13"
+  },
+  "scripts": {
+    "start": "node --env-file-if-exists=.env server.js",
+    "dev": "node --env-file-if-exists=.env --watch server.js",
+    "build": "node scripts/build-static.js",
+    "build:db": "node --env-file-if-exists=.env scripts/build-static.js --from-db",
+    "test": "node --test test/*.test.js"
+  },
+  "dependencies": {
+    "express": "^5.3.0"
+  }
+}
