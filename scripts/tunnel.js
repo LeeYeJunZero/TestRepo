@@ -56,7 +56,7 @@ for (let i = 0; i < 40; i++) {
 
 console.log(`\n✔ 터널 주소 : ${url}`);
 console.log(`  어드민     : ${url}/admin/   (로컬: http://localhost:${PORT}/admin/)`);
-console.log(`  수집 대상  : ${pagesOrigin}${cfg.pagesPath || '/'}`);
+console.log(`  수집 대상  : ${pagesOrigin.split(',').join(' , ')}`);
 
 // 4) pages.config.json 갱신 → push → GitHub Actions 가 Pages 재배포
 if (cfg.apiBase !== url) {

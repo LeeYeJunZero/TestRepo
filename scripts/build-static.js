@@ -33,7 +33,8 @@ function copyDir(src, dst) {
 fs.rmSync(out, { recursive: true, force: true });
 copyDir(path.join(root, 'public/assets'), path.join(out, 'assets'));
 
-const opts = { assetBase: 'assets', apiBase, track: true, static: true };
+const domain = fileCfg.customDomain || '';
+const opts = { assetBase: 'assets', apiBase, track: true, static: true, canonical: domain ? `https://${domain}/` : undefined };
 fs.writeFileSync(path.join(out, 'index.html'), site.status === 'maintenance' ? renderMaintenance(site, opts) : renderSite(site, opts));
 for (const s of SUBJECTS) {
   fs.mkdirSync(path.join(out, s), { recursive: true });
@@ -41,4 +42,6 @@ for (const s of SUBJECTS) {
 }
 fs.writeFileSync(path.join(out, '404.html'), '<!doctype html><meta charset="utf-8"><title>404</title><p style="font-family:sans-serif;padding:40px">페이지를 찾을 수 없습니다.</p>');
 fs.writeFileSync(path.join(out, '.nojekyll'), '');
+// 커스텀 도메인 (GitHub Pages Settings → Custom domain 과 같은 값)
+if (domain) fs.writeFileSync(path.join(out, 'CNAME'), `${domain}\n`);
 console.log(`built ${site.name} → dist/  (접속 기록 API: ${apiBase || '없음'})`);
