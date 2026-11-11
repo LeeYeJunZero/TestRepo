@@ -7,6 +7,7 @@
   const nav = document.querySelector('.nav');
   const toggle = document.querySelector('.nav-toggle');
   let leadBlocked = IS_STATIC && !API; // 접수 API 가 없으면 팝업을 띄우지 않음
+  const motionOK = matchMedia('(prefers-reduced-motion: no-preference)').matches;
 
   // 방문자 ID (정적 모드는 쿠키 대신 localStorage)
   let vid = '';
@@ -128,10 +129,30 @@
   const lead = document.getElementById('leadDialog');
   const leadForm = document.getElementById('leadForm');
   if (lead && leadForm) {
-    const POPUP_KEY = 'ft_lead_popup_seen';
+    const DONE_KEY = 'ft_lead_done';
     let picked = '';
-    const showStep = (n) => lead.querySelectorAll('.lead-step').forEach((s) => (s.hidden = s.dataset.step !== String(n)));
+    const showStep = (n) => {
+      lead.dataset.at = n;
+      lead.querySelectorAll('.lead-step').forEach((s) => (s.hidden = s.dataset.step !== String(n)));
+      lead.querySelector('.lead-tile.picked')?.classList.remove('picked');
+      lead.scrollTop = 0;
+    };
     const openLead = () => { if (!lead.open) { showStep(1); lead.showModal(); } };
+    // 접수 완료 축하 효과
+    const burst = () => {
+      if (!motionOK) return;
+      const box = document.createElement('div');
+      box.className = 'lead-burst';
+      const colors = ['#6750a4', '#00897b', '#1565c0', '#f9a825', '#e91e63'];
+      for (let i = 0; i < 48; i++) {
+        const p = document.createElement('i');
+        const a = Math.random() * Math.PI * 2, d = 110 + Math.random() * 230;
+        p.style.cssText = `--x:${Math.cos(a) * d}px;--y:${Math.sin(a) * d + 90}px;--r:${Math.random() * 720 - 360}deg;background:${colors[i % colors.length]};animation-delay:${Math.random() * 120}ms`;
+        box.appendChild(p);
+      }
+      lead.appendChild(box);
+      setTimeout(() => box.remove(), 1700);
+    };
     const fieldOf = (n) => leadForm.elements.namedItem(n);
     const leadMsg = leadForm.querySelector('.form-msg');
     const fail = (text, focusName) => {
@@ -147,7 +168,8 @@
         picked = tile.dataset.leadPick;
         lead.querySelector('[data-lead-picked]').textContent = picked;
         leadMsg.textContent = '';
-        showStep(2);
+        tile.classList.add('picked');
+        setTimeout(() => showStep(2), motionOK ? 260 : 0);
       }
     });
 
@@ -183,6 +205,8 @@
         await sendInquiry(data);
         leadForm.reset(); syncFields();
         showStep(3);
+        burst();
+        try { sessionStorage.setItem(DONE_KEY, '1'); } catch { /* 저장 불가 */ }
       } catch (err) {
         fail(sendError(err));
       } finally {
@@ -196,10 +220,10 @@
       openLead();
     }));
 
-    // 첫 방문에만 자동으로 띄움 (닫아도 다시 띄우지 않음)
-    let seen = false;
-    try { seen = !!localStorage.getItem(POPUP_KEY); localStorage.setItem(POPUP_KEY, '1'); } catch { /* 저장 불가: 방문마다 표시 */ }
-    if (!seen && !leadBlocked) openLead();
+    // 사이트에 들어올 때마다 표시 (같은 탭에서 신청을 마친 뒤에는 제외)
+    let done = false;
+    try { done = !!sessionStorage.getItem(DONE_KEY); } catch { /* 저장 불가: 항상 표시 */ }
+    if (!done && !leadBlocked) openLead();
   }
 
   // 상담 신청
@@ -253,28 +277,155 @@
   }
 
   // 아래 효과는 '동작 줄이기' 설정 방문자에게는 적용하지 않음
-  if (matchMedia('(prefers-reduced-motion: no-preference)').matches) {
-    // 스크롤 등장: 같은 줄의 카드는 순서대로
+  if (motionOK) {
+    // 첫 화면 제목: 글자가 차례로 올라오고 마지막 줄은 색이 흐름
+    const h1 = document.querySelector('.hero h1');
+    if (h1) {
+      const lines = [...h1.childNodes].filter((n) => n.nodeType === 3).map((n) => n.textContent);
+      h1.setAttribute('aria-label', lines.join(' '));
+      h1.textContent = '';
+      let n = 0;
+      lines.forEach((line, li) => {
+        if (li) h1.appendChild(document.createElement('br'));
+        if (li === lines.length - 1 && lines.length > 1) {
+          const mask = document.createElement('span'), inner = document.createElement('span');
+          mask.className = 'grad-mask'; inner.className = 'grad'; inner.textContent = line;
+          mask.setAttribute('aria-hidden', 'true'); mask.appendChild(inner); h1.appendChild(mask);
+          return;
+        }
+        line.split(' ').forEach((w, wi) => {
+          if (wi) h1.appendChild(document.createTextNode(' '));
+          const word = document.createElement('span');
+          word.className = 'word'; word.setAttribute('aria-hidden', 'true');
+          for (const ch of w) {
+            const c = document.createElement('span');
+            c.className = 'ch'; c.textContent = ch; c.style.setProperty('--n', n++);
+            word.appendChild(c);
+          }
+          h1.appendChild(word);
+        });
+      });
+    }
+
+    // 첫 화면 배경: 떠다니는 수식·기호 (화면에 보일 때만 동작)
+    const canvas = document.querySelector('.hero-canvas');
+    const ctx = canvas?.getContext('2d');
+    if (ctx) {
+      const glyphs = ['∑', 'π', '√', 'x²', 'Aa', '</>', '÷', '∞', '{ }', '%', 'A+', 'y=ax'];
+      const small = innerWidth < 720;
+      let w = 0, h = 0, on = true, raf = 0, mx = 0, my = 0;
+      const items = Array.from({ length: small ? 16 : 38 }, (_, i) => ({
+        g: glyphs[i % glyphs.length], x: Math.random(), y: Math.random(), z: 0.3 + Math.random() * 0.7,
+        s: 0.00035 + Math.random() * 0.0007, p: Math.random() * 6.28
+      }));
+      const color = getComputedStyle(body).getPropertyValue('--primary').trim() || '#6750a4';
+      const size = () => {
+        const dpr = Math.min(devicePixelRatio || 1, 2), r = canvas.getBoundingClientRect();
+        w = r.width; h = r.height; canvas.width = w * dpr; canvas.height = h * dpr; ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      };
+      const draw = (t) => {
+        ctx.clearRect(0, 0, w, h);
+        ctx.fillStyle = color; ctx.textAlign = 'center';
+        for (const it of items) {
+          it.y -= it.s * it.z; if (it.y < -0.08) { it.y = 1.08; it.x = Math.random(); }
+          const x = it.x * w + Math.sin(t / 1600 + it.p) * 18 * it.z - mx * 34 * it.z;
+          const y = it.y * h - my * 34 * it.z;
+          ctx.globalAlpha = 0.04 + it.z * 0.11;
+          ctx.font = `800 ${Math.round(14 + it.z * 26)}px system-ui, sans-serif`;
+          ctx.fillText(it.g, x, y);
+        }
+        if (on) raf = requestAnimationFrame(draw);
+      };
+      size();
+      window.addEventListener('resize', size, { passive: true });
+      window.addEventListener('pointermove', (e) => { mx = e.clientX / innerWidth - 0.5; my = e.clientY / innerHeight - 0.5; }, { passive: true });
+      new IntersectionObserver(([e]) => {
+        const vis = e.isIntersecting;
+        if (vis && !on) { on = true; raf = requestAnimationFrame(draw); } else if (!vis) { on = false; cancelAnimationFrame(raf); }
+      }).observe(canvas);
+      raf = requestAnimationFrame(draw);
+    }
+
+    // 스크롤 등장: 좌우에서 번갈아, 같은 줄의 카드는 순서대로
+    const countUp = (el) => {
+      const end = +el.dataset.count, t0 = performance.now();
+      const step = (t) => {
+        const p = Math.min((t - t0) / 1500, 1);
+        el.textContent = Math.round(end * (1 - (1 - p) ** 3));
+        if (p < 1) requestAnimationFrame(step);
+      };
+      requestAnimationFrame(step);
+    };
     if ('IntersectionObserver' in window) {
       const reveal = new IntersectionObserver((entries) => {
-        for (const e of entries) if (e.isIntersecting) { e.target.classList.add('in'); reveal.unobserve(e.target); }
+        for (const e of entries) if (e.isIntersecting) {
+          e.target.classList.add('in'); reveal.unobserve(e.target);
+          const num = e.target.querySelector?.('[data-count]');
+          if (num) countUp(num);
+        }
       }, { threshold: 0.12, rootMargin: '0px 0px -6% 0px' });
-      document.querySelectorAll('main .section-title, main .section-sub, main .trial-badge, main .trial-cta, main .card:not(.apply-form), main .steps').forEach((el) => {
-        el.style.setProperty('--d', `${Math.min([...el.parentElement.children].indexOf(el), 5) * 90}ms`);
+      document.querySelectorAll('main .section-title, main .section-sub, main .trial-badge, main .trial-ring, main .trial-cta, main .card:not(.apply-form), main .steps').forEach((el) => {
+        const idx = [...el.parentElement.children].indexOf(el);
+        el.style.setProperty('--d', `${Math.min(idx, 5) * 90}ms`);
+        if (el.matches('.grid > .card')) el.style.setProperty('--x', idx % 2 ? '60px' : '-60px');
         el.classList.add('reveal');
         reveal.observe(el);
       });
     }
 
-    // 첫 화면 문구 교체
+    // 섹션 뒤의 큰 글자
+    const decos = [['#worries', '?', 0.22], ['#exams', 'A+', -0.18], ['#features', '1:1', 0.2]].flatMap(([sel, text, speed]) => {
+      const sec = document.querySelector(sel);
+      if (!sec) return [];
+      const d = document.createElement('span');
+      d.className = 'deco'; d.textContent = text; d.setAttribute('aria-hidden', 'true');
+      sec.classList.add('has-deco'); sec.prepend(d);
+      return [{ sec, d, speed }];
+    });
+
+    // 스크롤에 연동: 첫 화면 카드 펼침, 단계 진행선, 큰 글자 이동
+    const heroEl = document.querySelector('.hero');
+    const heroText = document.querySelector('.hero-text');
+    const heroStack = document.querySelector('.hero-stack');
+    const stepsEl = document.querySelector('.steps');
+    const stepItems = stepsEl ? [...stepsEl.children] : [];
+    let fxTick = false;
+    const paintFx = () => {
+      fxTick = false;
+      const vh = innerHeight, y = scrollY;
+      const hh = heroEl?.offsetHeight || 1;
+      if (y < hh * 1.2) {
+        const p = Math.min(y / hh, 1);
+        if (heroText) { heroText.style.transform = `translateY(${(p * 80).toFixed(1)}px)`; heroText.style.opacity = (1 - p * 0.85).toFixed(3); }
+        heroStack?.style.setProperty('--sp', p.toFixed(3));
+      }
+      if (stepsEl) {
+        const top = stepsEl.getBoundingClientRect().top;
+        const prog = Math.max(0, Math.min((vh * 0.9 - top) / (vh * 0.55), 1));
+        stepsEl.style.setProperty('--prog', prog.toFixed(3));
+        stepItems.forEach((s, i) => s.classList.toggle('lit', prog >= (i + 0.4) / stepItems.length));
+      }
+      for (const { sec, d, speed } of decos) {
+        const r = sec.getBoundingClientRect();
+        if (r.bottom > 0 && r.top < vh) d.style.transform = `translateY(${((r.top + r.height / 2 - vh / 2) * speed).toFixed(1)}px) rotate(${((r.top / vh) * 12).toFixed(2)}deg)`;
+      }
+    };
+    window.addEventListener('scroll', () => { if (!fxTick) { fxTick = true; requestAnimationFrame(paintFx); } }, { passive: true });
+    window.addEventListener('resize', paintFx, { passive: true });
+    paintFx();
+
+    // 첫 화면 문구: 타자기처럼 지우고 다시 입력
     const rotor = document.querySelector('[data-rotate]');
     const words = rotor?.dataset.rotate.split('|') || [];
     if (words.length > 1) {
-      let i = 0;
-      setInterval(() => {
-        rotor.classList.add('out');
-        setTimeout(() => { i = (i + 1) % words.length; rotor.textContent = words[i]; rotor.classList.remove('out'); }, 260);
-      }, 2400);
+      let w = 0, c = words[0].length, erasing = true;
+      const type = () => {
+        rotor.textContent = words[w].slice(0, c);
+        if (erasing) {
+          if (c > 0) { c--; setTimeout(type, 45); } else { erasing = false; w = (w + 1) % words.length; setTimeout(type, 180); }
+        } else if (c < words[w].length) { c++; setTimeout(type, 85); } else { erasing = true; setTimeout(type, 1700); }
+      };
+      setTimeout(type, 1900);
     }
 
     // 마우스를 따라 움직이는 효과 (터치 기기 제외)
@@ -294,6 +445,32 @@
         });
         el.addEventListener('pointerleave', () => { el.style.transform = ''; });
       });
+
+      // 카드 위 빛 번짐
+      document.querySelectorAll('main .card').forEach((el) => el.addEventListener('pointermove', (e) => {
+        const r = el.getBoundingClientRect();
+        el.style.setProperty('--mx', `${e.clientX - r.left}px`);
+        el.style.setProperty('--my', `${e.clientY - r.top}px`);
+      }));
+
+      // 신청 버튼이 마우스 쪽으로 끌려옴
+      document.querySelectorAll('.hero-actions .btn-primary, .trial-cta .btn-primary').forEach((b) => {
+        b.addEventListener('pointermove', (e) => {
+          const r = b.getBoundingClientRect();
+          b.style.transform = `translate(${((e.clientX - r.left - r.width / 2) * 0.22).toFixed(1)}px, ${((e.clientY - r.top - r.height / 2) * 0.32).toFixed(1)}px) scale(1.05)`;
+        });
+        b.addEventListener('pointerleave', () => { b.style.transform = ''; });
+      });
+
+      // 마우스를 따라오는 원
+      const ring = document.createElement('div');
+      ring.className = 'cursor-ring'; ring.setAttribute('aria-hidden', 'true');
+      body.appendChild(ring);
+      window.addEventListener('pointermove', (e) => {
+        ring.style.opacity = '1';
+        ring.style.left = `${e.clientX}px`; ring.style.top = `${e.clientY}px`;
+        ring.classList.toggle('big', !!e.target.closest?.('a, button, summary'));
+      }, { passive: true });
     }
   }
 })();

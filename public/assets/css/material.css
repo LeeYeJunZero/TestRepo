@@ -137,7 +137,7 @@
 .section-sub { text-align: center; margin: -28px auto 36px; font-size: 17px; opacity: .8; }
 
 /* 학부모 고민 → 해결 */
-.worry { display: grid; gap: 10px; }
+.worry { display: grid; gap: 10px; align-content: start; }
 .card .worry-q { font-size: 18px; font-weight: 800; opacity: 1; color: var(--on-primary-container); }
 .card .worry-a { padding-left: 14px; border-left: 3px solid var(--primary); opacity: .9; }
 
@@ -156,6 +156,7 @@
 /* 첫 방문 팝업 */
 html:has(.lead-modal[open]) { overflow: hidden; }
 .lead-modal { width: min(520px, calc(100vw - 24px)); max-height: min(90vh, 90dvh); padding: 28px; border: 0; border-radius: 28px; color: var(--text); background: var(--surface); box-shadow: var(--elev-3); overflow-y: auto; }
+.lead-modal { scrollbar-width: thin; scrollbar-color: var(--outline-variant) transparent; }
 .lead-modal::backdrop { background: rgba(20, 16, 30, .6); }
 .lead-modal [hidden] { display: none !important; }
 .lead-modal h2 { font-size: 22px; font-weight: 800; margin: 0 32px 6px 0; }
@@ -187,6 +188,30 @@ html:has(.lead-modal[open]) { overflow: hidden; }
 .lead-done h2 { margin-right: 0; }
 .lead-check { display: grid; place-items: center; width: 64px; height: 64px; margin: 8px auto 14px; border-radius: 50%; font-size: 30px; font-weight: 800; background: var(--primary); color: var(--on-primary); }
 @media (max-width: 480px) { .lead-modal { padding: 22px 18px; border-radius: 22px; } .lead-tile { padding: 18px 8px; } }
+
+/* 키워드 흐름 띠 */
+.marquee { overflow: hidden; background: var(--primary); color: var(--on-primary); padding: 14px 0; }
+.marquee-track { display: flex; width: max-content; }
+.marquee-track span { padding: 0 28px; font-size: 18px; font-weight: 800; white-space: nowrap; }
+.marquee-track span::after { content: "✦"; margin-left: 56px; opacity: .55; }
+
+/* 무료 30분 링 */
+.trial-ring { position: relative; width: 136px; height: 136px; margin: 6px auto 14px; display: grid; place-content: center; justify-items: center; line-height: 1.1; }
+.trial-ring svg { position: absolute; inset: 0; transform: rotate(-90deg); }
+.trial-ring circle { fill: none; stroke-width: 9; }
+.ring-track { stroke: color-mix(in srgb, var(--primary) 18%, transparent); }
+.ring-fill { stroke: var(--primary); stroke-linecap: round; stroke-dasharray: 339.3; stroke-dashoffset: 0; }
+.trial-ring b { font-size: 44px; font-weight: 800; color: var(--primary); }
+.trial-ring span { font-size: 13px; font-weight: 700; }
+
+/* 팝업 단계 표시 */
+.lead-progress { position: absolute; top: 0; left: 0; right: 0; height: 5px; background: var(--surface-2); }
+.lead-progress i { display: block; height: 100%; width: 33%; background: var(--primary); transition: width .4s cubic-bezier(.2, .7, .2, 1); }
+.lead-modal[data-at="2"] .lead-progress i { width: 66%; }
+.lead-modal[data-at="3"] .lead-progress i { width: 100%; }
+
+main { overflow-x: clip; }
+.hero-canvas { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
 
 /* 시선 유도 효과 */
 .scroll-bar { position: fixed; top: 0; left: 0; right: 0; height: 3px; z-index: 80; background: var(--primary); transform: scaleX(0); transform-origin: left; pointer-events: none; }
@@ -241,6 +266,87 @@ html:has(.lead-modal[open]) { overflow: hidden; }
   .lead-tile:hover { transform: translateY(-3px); }
   .lead-tile { transition: border-color .15s, background .15s, transform .15s; }
   .worry, .exam, .step, .subject-card { transition: box-shadow .2s, transform .12s ease-out; }
+
+  /* ───── 몰입 효과 ───── */
+  @keyframes card-in { from { opacity: 0; transform: perspective(900px) translate3d(var(--x, 0), 56px, 0) rotateX(-20deg) scale(.93); } }
+  @keyframes title-in { from { opacity: 0; clip-path: inset(0 0 100% 0); transform: translateY(44px) scale(1.06); } to { clip-path: inset(0 0 -20% 0); } }
+  @keyframes ch-up { from { opacity: 0; transform: translateY(70%) rotate(8deg); } }
+  @keyframes mask-up { from { transform: translateY(110%); } }
+  @keyframes grad { to { background-position: -300% 0; } }
+  @keyframes wipe { from { clip-path: inset(0 100% 0 0); } to { clip-path: inset(0 0 0 0); } }
+  @keyframes marquee { to { transform: translateX(-50%); } }
+  @keyframes blink { 50% { opacity: 0; } }
+  @keyframes ring-fill { from { stroke-dashoffset: 339.3; } }
+  @keyframes modal-in { 0% { opacity: 0; transform: translateY(46px) scale(.82) rotateX(14deg); } 70% { transform: translateY(-6px) scale(1.02); } }
+  @keyframes backdrop-in { from { opacity: 0; } }
+  @keyframes tile-in { from { opacity: 0; transform: translateY(26px) scale(.7); } }
+  @keyframes tile-pick { 40% { transform: scale(.9); } 100% { transform: scale(1.06); } }
+  @keyframes tile-bob { 50% { transform: translateY(-5px) rotate(-6deg) scale(1.12); } }
+  @keyframes chip-pop { 45% { transform: scale(1.18); } }
+  @keyframes burst { from { opacity: 1; transform: translate(0, 0) rotate(0); } to { opacity: 0; transform: translate(var(--x), var(--y)) rotate(var(--r)); } }
+  @keyframes glow { 0% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--primary) 55%, transparent); } 100% { box-shadow: 0 0 0 16px transparent; } }
+
+  /* 제목 */
+  .hero-text > h1 { animation: none; }
+  .hero h1 .word { display: inline-block; white-space: nowrap; }
+  .hero h1 .ch { display: inline-block; animation: ch-up .6s cubic-bezier(.16, 1, .3, 1) calc(var(--n) * 38ms + .1s) backwards; }
+  .hero h1 .grad-mask { display: inline-block; overflow: hidden; padding-bottom: .12em; vertical-align: bottom; }
+  .hero h1 .grad { display: inline-block; color: transparent; background: linear-gradient(90deg, var(--primary), #00897b, #1565c0, var(--primary)); background-size: 300% 100%; -webkit-background-clip: text; background-clip: text; animation: mask-up .9s cubic-bezier(.16, 1, .3, 1) .55s backwards, grad 7s linear infinite; }
+  [data-rotate]::after { content: ""; display: inline-block; width: 2px; height: 1em; margin-left: 3px; vertical-align: -.12em; background: currentColor; animation: blink 1s step-end infinite; }
+
+  /* 첫 화면 스크롤 연동 */
+  .hero-text { will-change: transform, opacity; }
+  .stack-card, .hero-stack:hover .stack-card { transform: rotate(calc((var(--i) - 1) * (7deg + var(--sp, 0) * 26deg))) translate(calc((var(--i) - 1) * var(--sp, 0) * 130px), calc(var(--sp, 0) * -46px)); transition: transform .18s ease-out; }
+
+  .marquee-track { animation: marquee 30s linear infinite; }
+
+  /* 스크롤 등장 강화 */
+  .reveal.in { animation: card-in .85s cubic-bezier(.16, 1, .3, 1) var(--d, 0ms) backwards; }
+  .section-title.reveal.in { animation: title-in .9s cubic-bezier(.16, 1, .3, 1) backwards; }
+  .steps.in { animation: none; }
+  .card .worry-q { width: fit-content; background: linear-gradient(transparent 62%, color-mix(in srgb, var(--primary) 26%, transparent) 0) no-repeat 0 0 / 0 100%; }
+  .worry.in .worry-q { background-size: 100% 100%; transition: background-size .8s ease-out calc(var(--d, 0ms) + .35s); }
+  .worry.in .worry-a { animation: wipe .75s ease-out calc(var(--d, 0ms) + .7s) backwards; }
+
+  /* 빛 번짐 */
+  .card::before { content: ""; position: absolute; inset: 0; border-radius: inherit; background: radial-gradient(260px circle at var(--mx, 50%) var(--my, 50%), color-mix(in srgb, var(--primary) 16%, transparent), transparent 70%); opacity: 0; transition: opacity .25s; pointer-events: none; }
+  .card:hover::before { opacity: 1; }
+
+  /* 무료 학습 */
+  .trial-ring.in .ring-fill { animation: ring-fill 1.5s cubic-bezier(.3, .7, .2, 1) backwards; }
+  .steps.in::before { transform: scaleX(var(--prog, 0)); transition: transform .15s linear; }
+  .step-no { background: var(--outline-variant); transition: background .3s, transform .3s; }
+  .step.lit .step-no { background: var(--primary); transform: scale(1.14); animation: glow .8s ease-out; }
+  .theme-material .step.lit { box-shadow: var(--elev-3); }
+
+  /* 섹션 뒤 큰 글자 */
+  .has-deco { position: relative; overflow: hidden; }
+  .has-deco > .wrap { position: relative; z-index: 1; }
+  .deco { position: absolute; top: 8%; right: 3%; font-size: min(36vw, 400px); font-weight: 900; line-height: 1; color: var(--primary); opacity: .06; pointer-events: none; will-change: transform; }
+
+  /* 마우스 원 */
+  .cursor-ring { position: fixed; left: 0; top: 0; z-index: 90; width: 30px; height: 30px; margin: -15px 0 0 -15px; border: 2px solid var(--primary); border-radius: 50%; opacity: 0; pointer-events: none; transition: left .09s ease-out, top .09s ease-out, transform .18s, background .18s; }
+  .cursor-ring.big { transform: scale(1.8); background: color-mix(in srgb, var(--primary) 16%, transparent); }
+  html:has(.lead-modal[open]) .cursor-ring { display: none; }
+
+  /* 팝업 */
+  .lead-modal[open] { animation: modal-in .55s cubic-bezier(.2, .9, .3, 1); transform-origin: center bottom; }
+  .lead-modal[open]::backdrop { animation: backdrop-in .35s ease-out; }
+  .lead-step[data-step="1"]:not([hidden]) { animation: none; }
+  .lead-step[data-step="1"]:not([hidden]) h2, .lead-step[data-step="1"]:not([hidden]) .lead-sub { animation: rise .5s cubic-bezier(.16, 1, .3, 1) .1s backwards; }
+  .lead-step[data-step="1"]:not([hidden]) .lead-tile { animation: tile-in .55s cubic-bezier(.34, 1.56, .64, 1) calc(var(--i) * 42ms + .18s) backwards; }
+  .lead-tile:hover b { animation: tile-bob .6s ease-in-out; }
+  .lead-tile.picked, .lead-tile.picked:hover { background: var(--primary); border-color: var(--primary); color: var(--on-primary); animation: tile-pick .26s ease-out forwards !important; }
+  .lead-step[data-step="2"]:not([hidden]) { animation: side-in .35s cubic-bezier(.16, 1, .3, 1); }
+  .lead-step[data-step="2"]:not([hidden]) > fieldset { animation: rise .5s cubic-bezier(.16, 1, .3, 1) backwards; }
+  .lead-step[data-step="2"]:not([hidden]) > fieldset:nth-of-type(2) { animation-delay: .08s; }
+  .lead-step[data-step="2"]:not([hidden]) > fieldset:nth-of-type(3) { animation-delay: .16s; }
+  .opt span { transition: background .15s, color .15s, border-color .15s, transform .15s; }
+  .opt:hover span { transform: translateY(-2px); border-color: var(--primary); }
+  .opt input:checked + span { animation: chip-pop .3s ease-out; }
+  .lead-done .lead-check { animation: pop .6s cubic-bezier(.34, 1.56, .64, 1) .1s backwards, glow 1s ease-out .5s; }
+  .lead-burst { position: absolute; inset: 0; overflow: hidden; pointer-events: none; }
+  .lead-burst i { position: absolute; left: 50%; top: 22%; width: 9px; height: 14px; border-radius: 2px; animation: burst 1.4s cubic-bezier(.16, .8, .3, 1) both; }
 }
 @media (max-width: 980px) { .steps::before { display: none; } }
 

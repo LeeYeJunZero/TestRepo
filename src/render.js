@@ -88,18 +88,20 @@ ${color ? `<style>:root{--primary:${color}}</style>` : ''}
 const GRADES = ['초등학생', '중학생', '고등학생', '대학생·성인', '기타'];
 const LEAD_GRADES = ['초1', '초2', '초3', '초4', '초5', '초6', '중1', '중2', '중3', '고1', '고2', '고3·재수생', '성인'];
 const LEAD_MODES = ['방문수업', '화상수업'];
+const MARQUEE = ['1:1 맞춤 수업', '무료 학습 30분', '중등 내신', '고등 내신', '모의고사', '학교별 기출 분석', '오답 관리', '월간 리포트'];
 
 const leadOptions = (name, values) => values.map((v) => `<label class="opt"><input type="radio" name="${name}" value="${esc(v)}"><span>${esc(v)}</span></label>`).join('');
 
 // 첫 방문 팝업: 1단계 과목 선택 → 2단계 인적사항 → 완료
 function leadDialog(tiles) {
   return `<dialog class="lead-modal" id="leadDialog" aria-labelledby="leadTitle">
+  <div class="lead-progress" aria-hidden="true"><i></i></div>
   <button class="lead-close" type="button" data-lead-close aria-label="닫기">✕</button>
   <div class="lead-step" data-step="1">
     <h2 id="leadTitle">어떤 과목을 도와드릴까요?</h2>
     <p class="lead-sub">과목을 고르시면 <b>무료 학습 30분</b> 신청으로 이어집니다.</p>
     <div class="lead-grid">
-      ${tiles.map((t) => `<button class="lead-tile" type="button" data-lead-pick="${esc(t.name)}"><b>${esc(t.icon)}</b><span>${esc(t.name)}</span></button>`).join('')}
+      ${tiles.map((t, i) => `<button class="lead-tile" type="button" style="--i:${i}" data-lead-pick="${esc(t.name)}"><b>${esc(t.icon)}</b><span>${esc(t.name)}</span></button>`).join('')}
     </div>
   </div>
   <form class="lead-step" id="leadForm" data-step="2" hidden novalidate>
@@ -178,6 +180,7 @@ ${site.notice ? `<div class="notice" role="status"><div class="wrap">${esc(site.
 
 <main>
   <section class="hero">
+    <canvas class="hero-canvas" aria-hidden="true"></canvas>
     <div class="wrap hero-inner">
       <div class="hero-text">
         <span class="eyebrow">${esc(site.tagline)}</span>
@@ -198,6 +201,8 @@ ${site.notice ? `<div class="notice" role="status"><div class="wrap">${esc(site.
     </div>
   </section>
 
+  <div class="marquee" aria-hidden="true"><div class="marquee-track">${[0, 1].map(() => MARQUEE.map((t) => `<span>${esc(t)}</span>`).join('')).join('')}</div></div>
+
   ${worries.length ? `<section id="worries" class="section section-alt">
     <div class="wrap">
       <h2 class="section-title">아이 공부, 이런 걱정이 드시나요?</h2>
@@ -214,6 +219,10 @@ ${site.notice ? `<div class="notice" role="status"><div class="wrap">${esc(site.
   ${steps.length ? `<section id="trial" class="section trial">
     <div class="wrap">
       <span class="trial-badge">비용 없이 먼저 경험해 보세요</span>
+      <div class="trial-ring" aria-hidden="true">
+        <svg viewBox="0 0 120 120"><circle class="ring-track" cx="60" cy="60" r="54"/><circle class="ring-fill" cx="60" cy="60" r="54"/></svg>
+        <b data-count="30">30</b><span>분 무료</span>
+      </div>
       <h2 class="section-title">무료 학습 30분</h2>
       <p class="section-sub">등록을 결정하기 전에 1:1 수업을 직접 받아 보실 수 있습니다.</p>
       <ol class="steps">
