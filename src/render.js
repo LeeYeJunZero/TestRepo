@@ -586,6 +586,9 @@ ${groups.map(([k, t, xs]) => `    <section class="school-section" data-section="
   }, opts);
 }
 
+// 학교 상세 페이지가 함께 쓰는 팝업 (사이트 전체에 파일 하나)
+export const renderLeadDialog = (site) => leadDialog(site.leadSubjects ?? DEFAULT_SITE.data.leadSubjects);
+
 // 학교별 상세 페이지 (.../schools/{시·도}/{시·군·구}/{학교코드}/)
 export function renderSchoolDetail(site, region, city, row, opts = {}) {
   const root = '../../../../';
@@ -618,7 +621,7 @@ export function renderSchoolDetail(site, region, city, row, opts = {}) {
     </section>
     <section class="detail-section">
       <h2 class="section-title left">${esc(short)} 과목별 공부법</h2>
-      <div class="study-grid">${guide.map((g) => `<article class="card study-card"><h3>${esc(short)} ${esc(g.subject)} 과외</h3><p>${esc(g.text)}</p></article>`).join('')}</div>
+      <div class="study-grid" data-school="${esc(s.name)}" data-short="${esc(short)}" data-dialog="${root}assets/lead-dialog.html${opts.assetV ? `?v=${opts.assetV}` : ''}">${guide.map((g) => `<article class="card study-card" data-subject-name="${esc(g.subject)}"><h3>${esc(short)} ${esc(g.subject)} 과외</h3><p>${esc(g.text)}</p><button type="button" class="study-open">${esc(g.subject)} 과외 문의 →</button></article>`).join('')}</div>
     </section>
     <section class="detail-section">
       <h2 class="section-title left">${esc(short)} 내신 대비 순서</h2>

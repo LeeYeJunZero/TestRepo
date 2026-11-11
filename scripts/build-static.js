@@ -7,7 +7,7 @@ import path from 'node:path';
 import crypto from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { DEFAULT_SITE, SITE_KEY, SUBJECTS } from '../src/defaults.js';
-import { renderSite, renderMaintenance, renderRedirect, renderRobots, renderSitemap, renderSchoolsIndex, renderSchoolRegion, renderSchoolCity, renderSchoolDetail, schoolCitiesOf, schoolKindKey, SCHOOL_KINDS, SCHOOL_REGIONS } from '../src/render.js';
+import { renderSite, renderMaintenance, renderRedirect, renderRobots, renderSitemap, renderSchoolsIndex, renderSchoolRegion, renderSchoolCity, renderSchoolDetail, renderLeadDialog, schoolCitiesOf, schoolKindKey, SCHOOL_KINDS, SCHOOL_REGIONS } from '../src/render.js';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 // STATIC_OUT: 출력 폴더 변경, STATIC_SCHOOL_REGIONS: 학교 상세 페이지를 만들 시·도 slug 제한 (쉼표 구분, 개발용)
@@ -55,6 +55,7 @@ const schoolRegions = SCHOOL_REGIONS.map((r) => {
 // 배포마다 CSS·JS 주소가 달라지게 해서, 브라우저에 남은 옛 파일이 새 페이지에 적용되지 않게 함
 const assetV = crypto.createHash('sha1').update(['css/base.css', 'css/material.css', 'js/site.js'].map((f) => fs.readFileSync(path.join(root, 'public/assets', f))).join('')).digest('hex').slice(0, 8);
 const opts = { assetV, assetBase: 'assets', apiBase, track: true, static: true, canonical, verify: fileCfg.verification || {}, schoolRegions };
+fs.writeFileSync(path.join(out, 'assets', 'lead-dialog.html'), renderLeadDialog(site));
 fs.mkdirSync(path.join(out, 'schools'), { recursive: true });
 fs.writeFileSync(path.join(out, 'schools', 'index.html'), renderSchoolsIndex(site, schoolRegions, schools.length, opts));
 // 학교 이름 검색용 목록 (입력 시에만 내려받음): c = [시·도 slug, 표시 지역, 폴더], s = [학교명, 학교급 번호, c 번호, 학교코드]

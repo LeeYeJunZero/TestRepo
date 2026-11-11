@@ -77,6 +77,10 @@
 .study-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
 .theme-material .study-card.card { padding: 20px 22px; box-shadow: none; border: 1px solid var(--outline-variant); border-radius: 14px; }
 .theme-material .study-card.card:hover, .theme-material .fact-card.card:hover { border-color: var(--primary); box-shadow: var(--elev-2); }
+.theme-material .study-card.card { display: flex; flex-direction: column; cursor: pointer; }
+.study-card p { flex: 1; }
+.study-open { position: relative; align-self: flex-start; margin-top: 12px; padding: 7px 14px; font: inherit; font-size: 13px; font-weight: 700; color: var(--primary); background: var(--primary-container); border: 0; border-radius: 100px; cursor: pointer; transition: color .15s, background .15s; }
+.study-card:hover .study-open, .study-open:focus-visible { color: var(--on-primary); background: var(--primary); }
 .study-card h3 { position: relative; margin-bottom: 8px; font-size: 17px; color: var(--primary); }
 .study-card p { position: relative; font-size: 14.5px; line-height: 1.7; }
 .detail-cta { margin-top: 24px; text-align: center; }

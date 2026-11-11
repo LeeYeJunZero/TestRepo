@@ -295,6 +295,9 @@ test('R-14 정적 빌드: dist/index.html 통합 페이지 + 기존 과목 주�
   const detail = fs.readFileSync(path.join(root, 'dist', 'schools', 'jeju', jeju[3], jeju[4], 'index.html'), 'utf8');
   for (const t of ['학교 특징', '과목별 공부법', '내신 대비 순서', '제주제일고 국어 과외', '제주제일고 영어 과외', '제주제일고 수학 과외', '제주제일고 사회 과외', '제주제일고 과학 과외', '제주제일고 한국사 과외', '제주제일고 물리 과외', '제주제일고 화학 과외', '제주제일고 생물 과외']) assert.ok(detail.includes(t), t);
   assert.ok(detail.includes('school=' + encodeURIComponent('제주제일고등학교')), '신청 링크에 학교 이름');
+  assert.ok(detail.includes('data-subject-name="영어"') && detail.includes('assets/lead-dialog.html'), '공부법 카드가 공용 팝업 사용');
+  assert.ok(!detail.includes('id="leadDialog"'), '상세 페이지마다 팝업을 넣지 않음');
+  assert.ok(fs.readFileSync(path.join(root, 'dist', 'assets', 'lead-dialog.html'), 'utf8').includes('id="leadDialog"'));
   assert.ok(fs.readFileSync(path.join(root, 'dist', 'schools', 'jeju', jeju[3], 'index.html'), 'utf8').includes(`href="${jeju[4]}/"`), '카드가 상세 페이지로 연결');
   assert.ok(gangnam.includes('강남 단국대부속고 국어') && !gangnam.includes('강남 고 국어'), '부속학교 줄임말');
 });

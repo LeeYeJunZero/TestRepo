@@ -126,11 +126,22 @@
   const sendError = (err) => (err instanceof TypeError ? '접수 서버에 연결할 수 없습니다. 잠시 후 다시 시도하거나 전화로 문의해 주세요.' : err.message);
 
   // 첫 방문 팝업: 과목 선택 → 인적사항 → 완료
-  const lead = document.getElementById('leadDialog');
-  const leadForm = document.getElementById('leadForm');
-  if (lead && leadForm) {
+  let openLeadFor = null;
+  const initLead = (auto = true) => {
+    const lead = document.getElementById('leadDialog');
+    const leadForm = document.getElementById('leadForm');
+    if (!lead || !leadForm) return;
     const DONE_KEY = 'ft_lead_done';
     let picked = '';
+    let leadCtx = null; // 학교 상세 페이지에서 연 경우 { school, short }
+    const leadTitle = lead.querySelector('[data-step="2"] h2');
+    const leadTitleDefault = leadTitle.innerHTML;
+    // 팝업 제목은 이 한 곳에서 변수로 만듦 (학교·과목별 팝업을 따로 두지 않음)
+    const setLeadTitle = () => {
+      if (leadCtx) { leadTitle.textContent = `${leadCtx.short} ${picked} 과외 문의`; return; }
+      leadTitle.innerHTML = leadTitleDefault;
+      leadTitle.querySelector('[data-lead-picked]').textContent = picked;
+    };
     const showStep = (n) => {
       lead.dataset.at = n;
       lead.querySelectorAll('.lead-step').forEach((s) => (s.hidden = s.dataset.step !== String(n)));
@@ -166,7 +177,7 @@
       const tile = e.target.closest('[data-lead-pick]');
       if (tile) {
         picked = tile.dataset.leadPick;
-        lead.querySelector('[data-lead-picked]').textContent = picked;
+        setLeadTitle();
         leadMsg.textContent = '';
         tile.classList.add('picked');
         setTimeout(() => showStep(2), motionOK ? 260 : 0);
@@ -280,10 +291,48 @@
     // 사이트에 들어올 때마다 표시 (같은 탭에서 신청을 마친 뒤에는 제외)
     let done = false;
     try { done = !!sessionStorage.getItem(DONE_KEY); } catch { /* 저장 불가: 항상 표시 */ }
+    openLeadFor = ({ school, short, subject }) => {
+      leadCtx = { school, short };
+      picked = subject;
+      fieldOf('school').value = school;
+      setLeadTitle();
+      leadMsg.textContent = '';
+      showStep(2);
+      if (!lead.open) lead.showModal();
+    };
+
     // 학교별 과외 페이지의 카드에서 온 경우: 학교 이름을 미리 채우고 항상 표시
     const schoolParam = new URLSearchParams(location.search).get('school');
     if (schoolParam) fieldOf('school').value = schoolParam.slice(0, 60);
-    if ((!done || schoolParam) && !leadBlocked) openLead();
+    if (auto && (!done || schoolParam) && !leadBlocked) openLead();
+  };
+  initLead();
+
+  // 학교 상세 페이지: 과목별 공부법 카드를 누르면 공용 팝업을 'XX고 YY 과외 문의'로 표시
+  const studyGrid = document.querySelector('.study-grid');
+  if (studyGrid) {
+    const { school, short, dialog } = studyGrid.dataset;
+    const fallback = document.querySelector('.school-hero .btn-primary')?.href;
+    let dialogReady = null;
+    const loadDialog = () => (dialogReady ||= fetch(dialog).then((r) => {
+      if (!r.ok) throw new Error('dialog');
+      return r.text();
+    }).then((html) => {
+      body.insertAdjacentHTML('beforeend', html);
+      initLead(false);
+    }).catch((e) => { dialogReady = null; throw e; }));
+    window.addEventListener('load', () => loadDialog().catch(() => {}), { once: true });
+    studyGrid.addEventListener('click', async (e) => {
+      const card = e.target.closest('[data-subject-name]');
+      if (!card) return;
+      try {
+        await loadDialog();
+        if (leadBlocked || !openLeadFor) throw new Error('blocked');
+        openLeadFor({ school, short, subject: card.dataset.subjectName });
+      } catch {
+        if (fallback) location.href = fallback; // 팝업을 쓸 수 없으면 메인 신청으로 이동
+      }
+    });
   }
 
   // 학교별 과외: 학교 찾기 (시·군·구 페이지는 화면의 카드를 거르고, 전국·시·도 페이지는 목록을 내려받아 검색)
