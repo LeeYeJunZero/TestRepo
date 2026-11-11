@@ -173,15 +173,65 @@
       }
     });
 
+    const addrBox = leadForm.querySelector('.lead-addr');
+    const addrLayer = leadForm.querySelector('.addr-layer');
+    const addrEmbed = leadForm.querySelector('.addr-embed');
+    let addrZip = '';
+    const clearAddr = () => {
+      fieldOf('address').value = ''; fieldOf('addressDetail').value = '';
+      addrZip = ''; addrLayer.hidden = true; addrEmbed.textContent = '';
+    };
+
     // 대상에 해당하지 않는 항목은 숨김: 성인 → 학교, 화상수업 → 주소
     const syncFields = () => {
-      const school = fieldOf('school'), address = fieldOf('address');
+      const school = fieldOf('school');
       school.hidden = fieldOf('grade').value === '성인';
-      address.hidden = fieldOf('mode').value === '화상수업';
+      addrBox.hidden = fieldOf('mode').value === '화상수업';
       if (school.hidden) school.value = '';
-      if (address.hidden) address.value = '';
+      if (addrBox.hidden) clearAddr();
     };
     leadForm.addEventListener('change', syncFields);
+
+    // 도로명 주소: 카카오 우편번호 서비스에서 선택한 주소만 입력 (직접 입력 불가)
+    // 주의: 이 스크립트 주소에 쿼리 파라미터를 붙이면 서비스가 경고창을 띄우고 멈춤
+    const POSTCODE_SRC = 'https://t1.kakaocdn.net/mapjsapi/bundle/postcode/prod/postcode.v2.js';
+    const Postcode = () => window.kakao?.Postcode || window.daum?.Postcode;
+    let postcodeReady = null;
+    const loadPostcode = () => (postcodeReady ||= new Promise((ok, no) => {
+      if (Postcode()) return ok();
+      const failed = () => { postcodeReady = null; s.remove(); no(new Error('postcode')); };
+      const s = document.createElement('script');
+      s.src = POSTCODE_SRC;
+      s.onload = () => (Postcode() ? ok() : failed());
+      s.onerror = failed;
+      document.head.appendChild(s);
+    }));
+    const openAddr = async () => {
+      if (!addrLayer.hidden) { addrLayer.hidden = true; return; }
+      try {
+        await loadPostcode();
+      } catch {
+        fail('주소 검색을 불러오지 못했습니다. 잠시 후 다시 시도해 주세요.');
+        return;
+      }
+      leadMsg.textContent = '';
+      addrEmbed.textContent = '';
+      addrLayer.hidden = false;
+      new (Postcode())({
+        width: '100%', height: '100%',
+        oncomplete: (d) => {
+          const road = d.roadAddress || d.autoRoadAddress;
+          addrLayer.hidden = true;
+          if (!road) { fail('도로명 주소가 있는 항목을 선택해 주세요.'); return; }
+          addrZip = d.zonecode || '';
+          fieldOf('address').value = road;
+          fieldOf('addressDetail').focus();
+        }
+      }).embed(addrEmbed);
+      addrLayer.scrollIntoView({ block: 'nearest' });
+    };
+    leadForm.querySelector('[data-addr-search]').addEventListener('click', openAddr);
+    fieldOf('address').addEventListener('click', () => { if (addrLayer.hidden) openAddr(); });
 
     leadForm.addEventListener('submit', async (e) => {
       e.preventDefault();
@@ -196,14 +246,17 @@
       if (!val('name')) return fail('이름을 입력해 주세요.', 'name');
       if (!/^[0-9+\-() ]{8,20}$/.test(val('phone'))) return fail('연락처를 정확히 입력해 주세요.', 'phone');
       if (!fieldOf('school').hidden && !val('school')) return fail('학교를 입력해 주세요.', 'school');
-      if (!fieldOf('address').hidden && !val('address')) return fail('주소를 입력해 주세요.', 'address');
+      if (!addrBox.hidden && !val('address')) return fail('주소 검색으로 주소를 선택해 주세요.');
       if (!val('message')) return fail('특이사항을 입력해 주세요.', 'message');
       if (!data.agree) return fail('개인정보 수집·이용에 동의해 주세요.');
+      // 우편번호 + 선택한 도로명 주소 + 상세 주소를 한 줄로 전송
+      data.address = val('address') ? [addrZip && `[${addrZip}]`, val('address'), val('addressDetail')].filter(Boolean).join(' ') : '';
+      delete data.addressDetail;
       const label = btn.textContent;
       btn.disabled = true; btn.textContent = '전송 중…';
       try {
         await sendInquiry(data);
-        leadForm.reset(); syncFields();
+        leadForm.reset(); clearAddr(); syncFields();
         showStep(3);
         burst();
         try { sessionStorage.setItem(DONE_KEY, '1'); } catch { /* 저장 불가 */ }

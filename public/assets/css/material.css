@@ -180,6 +180,13 @@ html:has(.lead-modal[open]) { overflow: hidden; }
 .lead-fields { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
 .lead-fields .wide { grid-column: 1 / -1; }
 .theme-material .lead-fields input, .theme-material .lead-fields textarea { border-radius: 12px; }
+.lead-addr { display: grid; gap: 8px; }
+.addr-row { display: grid; grid-template-columns: 1fr auto; gap: 8px; }
+.addr-row input { cursor: pointer; }
+.addr-row .btn { padding: 0 16px; font-size: 14px; white-space: nowrap; border-radius: 12px; }
+.addr-layer { height: 420px; border: 1px solid var(--outline-variant); border-radius: 12px; overflow: hidden; }
+.addr-embed { width: 100%; height: 100%; }
+.theme-material .lead-addr input { border-radius: 12px; }
 .lead-terms { font-size: 13px; }
 .lead-terms summary { cursor: pointer; font-weight: 600; }
 .lead-terms p { margin: 6px 0 0; opacity: .85; }

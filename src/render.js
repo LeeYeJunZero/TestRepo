@@ -115,7 +115,14 @@ function leadDialog(tiles) {
         <input name="name" maxlength="40" placeholder="이름 *" aria-label="이름" autocomplete="name">
         <input name="phone" maxlength="20" inputmode="tel" placeholder="연락처 *" aria-label="연락처" autocomplete="tel">
         <input class="wide" name="school" maxlength="60" placeholder="학교 *" aria-label="학교">
-        <input class="wide" name="address" maxlength="200" placeholder="주소 (자택 도로명 주소) *" aria-label="주소" autocomplete="street-address">
+        <div class="wide lead-addr">
+          <div class="addr-row">
+            <input name="address" readonly placeholder="도로명 주소 * (주소 검색으로 선택)" aria-label="도로명 주소">
+            <button class="btn btn-outline" type="button" data-addr-search>주소 검색</button>
+          </div>
+          <div class="addr-layer" hidden><div class="addr-embed"></div></div>
+          <input name="addressDetail" maxlength="80" placeholder="상세 주소 (동·호수)" aria-label="상세 주소" autocomplete="address-line2">
+        </div>
         <textarea class="wide" name="message" rows="2" maxlength="1000" placeholder="특이사항 * (원하시는 요일·시간, 아이 상황 등)" aria-label="특이사항"></textarea>
       </div>
     </fieldset>
