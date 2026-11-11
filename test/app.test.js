@@ -266,7 +266,7 @@ test('R-13 보안: CSRF(비 JSON 변경요청 거부), 로그인 시도 제한',
 });
 
 test('R-14 정적 빌드: dist/index.html 통합 페이지 + 기존 과목 주소 리다이렉트', () => {
-  execFileSync(process.execPath, ['scripts/build-static.js'], { cwd: root, env: { ...process.env, STATIC_API_BASE: 'https://api.ft.test' } });
+  execFileSync(process.execPath, ['scripts/build-static.js'], { cwd: root, env: { ...process.env, STATIC_API_BASE: 'https://api.ft.test', STATIC_SCHOOL_REGIONS: 'jeju' } });
   const html = fs.readFileSync(path.join(root, 'dist', 'index.html'), 'utf8');
   assert.ok(html.includes('퍼스트티쳐'));
   assert.match(html, /href="assets\/css\/material\.css\?v=[0-9a-f]{8}"/);
@@ -290,6 +290,12 @@ test('R-14 정적 빌드: dist/index.html 통합 페이지 + 기존 과목 주�
   assert.ok(fs.readFileSync(path.join(root, 'dist', 'schools', 'seoul', '강남구', 'index.html'), 'utf8').includes('대치중학교'));
   assert.ok(!html.includes('대치중학교'), '메인 페이지에는 학교 목록을 넣지 않음');
   const gangnam = fs.readFileSync(path.join(root, 'dist', 'schools', 'seoul', '강남구', 'index.html'), 'utf8');
+  // 학교 상세 페이지: 학교 특징·과목별 공부법·전과목 키워드
+  const jeju = schools.find((s) => s[0] === '제주제일고등학교');
+  const detail = fs.readFileSync(path.join(root, 'dist', 'schools', 'jeju', jeju[3], jeju[4], 'index.html'), 'utf8');
+  for (const t of ['학교 특징', '과목별 공부법', '내신 대비 순서', '제주제일고 국어 과외', '제주제일고 영어 과외', '제주제일고 수학 과외', '제주제일고 사회 과외', '제주제일고 과학 과외', '제주제일고 한국사 과외', '제주제일고 물리 과외', '제주제일고 화학 과외', '제주제일고 생물 과외']) assert.ok(detail.includes(t), t);
+  assert.ok(detail.includes('school=' + encodeURIComponent('제주제일고등학교')), '신청 링크에 학교 이름');
+  assert.ok(fs.readFileSync(path.join(root, 'dist', 'schools', 'jeju', jeju[3], 'index.html'), 'utf8').includes(`href="${jeju[4]}/"`), '카드가 상세 페이지로 연결');
   assert.ok(gangnam.includes('강남 단국대부속고 국어') && !gangnam.includes('강남 고 국어'), '부속학교 줄임말');
 });
 

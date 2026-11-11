@@ -1,4 +1,5 @@
 import { DEFAULT_SITE, SUBJECTS, SUBJECT_NAME } from './defaults.js';
+import { describeSchool, studyGuide } from './school-guide.js';
 
 const ESC = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' };
 export const esc = (v) => String(v ?? '').replace(/[&<>"']/g, (c) => ESC[c]);
@@ -427,7 +428,7 @@ export const SCHOOL_REGIONS = [
 // 화면에 나오는 순서. 그 외 학교급은 '기타 학교'로 묶음
 export const SCHOOL_KINDS = [['고등학교', '고등학교'], ['중학교', '중학교'], ['초등학교', '초등학교'], ['etc', '기타 학교']];
 export const schoolKindKey = (k) => (SCHOOL_KINDS.some(([x]) => x === k) ? k : 'etc');
-const shortSchool = (name) => {
+export const shortSchool = (name) => {
   // 대학 부속학교: '동국대…부속선화여자고등학교' → 선화여고, 고유 이름이 없으면 '단국대부속고'
   const own = name.replace(/^.+대학교(사범대학)?(부속|부설)/, '');
   const base = /^(여자)?(고등|중|초등)학교$/.test(own) ? name.replace(/대학교(사범대학)?(부속|부설)/, '대부속') : own;
@@ -452,7 +453,7 @@ export function schoolCitiesOf(region, list) {
 
 const count = (n) => n.toLocaleString('ko-KR');
 
-function schoolPage(site, { title, desc, path: pagePath, root, crumbs, h1, lead, body }, opts) {
+function schoolPage(site, { title, desc, path: pagePath, root, crumbs, h1, lead, heroCta = '', body }, opts) {
   const A = `${root}assets`;
   const url = opts.canonical ? opts.canonical + encodeURI(pagePath) : '';
   return `<!doctype html>
@@ -499,6 +500,7 @@ ${FONT}
       <nav class="crumbs" aria-label="현재 위치">${crumbs.map(([t, href]) => (href ? `<a href="${esc(encodeURI(href))}">${esc(t)}</a>` : `<span>${esc(t)}</span>`)).join('<i aria-hidden="true">›</i>')}</nav>
       <h1>${esc(h1)}</h1>
       <p class="lead">${lead}</p>
+      ${heroCta}
     </div></div>
   </section>
   <div class="wrap school-main">
@@ -578,9 +580,59 @@ ${groups.map(([k, t, xs]) => `    <section class="school-section" data-section="
       <div class="school-section-head"><h2>${esc(city.label)} ${esc(t)} 과외</h2><span class="count-badge">${count(xs.length)}곳</span></div>
       <div class="school-grid">${xs.map((x) => {
         const short = shortSchool(x[0]);
-        return `<a class="card school-card" rel="nofollow" href="${root}?school=${encodeURIComponent(x[0])}" data-name="${esc(x[0])}" data-short="${esc(short)}" data-kind="${esc(k)}"><b class="school-name">${esc(x[0])}</b><span>${esc(city.label)} ${esc(short)} 국어·영어·수학 과외</span></a>`;
+        return `<a class="card school-card" href="${esc(encodeURIComponent(x[4]))}/" data-name="${esc(x[0])}" data-short="${esc(short)}" data-kind="${esc(k)}"><b class="school-name">${esc(x[0])}</b><span>${esc(city.label)} ${esc(short)} 국어·영어·수학 과외</span></a>`;
       }).join('')}</div>
     </section>`).join('\n')}`
+  }, opts);
+}
+
+// 학교별 상세 페이지 (.../schools/{시·도}/{시·군·구}/{학교코드}/)
+export function renderSchoolDetail(site, region, city, row, opts = {}) {
+  const root = '../../../../';
+  const s = describeSchool(row);
+  const short = shortSchool(s.name);
+  const guide = studyGuide(s.level);
+  const apply = `${root}?school=${encodeURIComponent(s.name)}`;
+  const nearby = city.schools.filter((x) => x[1] === s.kind && x[4] !== s.code).slice(0, 8);
+  const keywords = [...guide.map((g) => `${short} ${g.subject} 과외`), `${short} 내신`, ...(s.level === 'high' ? [`${short} 모의고사`] : []), `${city.label} ${s.kind} 과외`];
+  const steps = [
+    ['시험 범위·평가 계획 확인', `${short}에서 공개한 평가 계획으로 지필과 수행평가 비중을 확인합니다.`],
+    ['무료 학습 30분', '1:1로 수업을 해 보며 과목별 강점과 취약점을 진단합니다.'],
+    ['과목별 계획', s.level === 'high' ? '학교 시험 일정과 모의고사 일정에 맞춰 학습 순서를 정합니다.' : '학교 시험 일정에 맞춰 과목별 학습 순서를 정합니다.'],
+    ['오답 관리와 리포트', '틀린 이유를 기록해 반복 실수를 줄이고, 매월 학습 현황을 공유합니다.']
+  ];
+  return schoolPage(site, {
+    title: `${s.name} 과외 | 국어·영어·수학 1:1 맞춤 내신 대비 | ${site.name}`,
+    desc: `${s.region} ${city.label} ${s.name} 학생을 위한 국어·영어·수학·사회·과학·한국사 1:1 맞춤 과외. 학교 특징과 과목별 공부법, 내신 대비 순서를 안내합니다.`,
+    path: `schools/${region.slug}/${city.path}/${s.code}/`, root,
+    crumbs: [['홈', root], ['학교별 과외', '../../../'], [region.short, '../../'], [city.label, '../'], [s.name]],
+    h1: `${s.name} 1:1 과외`,
+    lead: `${esc(s.intro)}`,
+    heroCta: `<a class="btn btn-primary btn-lg" href="${esc(apply)}" rel="nofollow">${esc(short)} 무료 학습 30분 신청</a>`,
+    body: `    <section class="detail-section">
+      <h2 class="section-title left">${esc(short)} 학교 특징</h2>
+      <div class="fact-grid">${s.facts.map(([k, v]) => `<div class="card fact-card"><span>${esc(k)}</span><b>${esc(v)}</b></div>`).join('')}</div>
+      ${s.majors.length ? `<div class="card note-card"><h3>개설 학과</h3><ul class="major-list">${s.majors.map((m) => `<li>${esc(m)}</li>`).join('')}</ul></div>` : ''}
+      <div class="card note-card"><h3>${esc(short)} 학습 방향</h3><p>${esc(s.note)}</p></div>
+      ${s.home ? `<p class="school-home"><a href="${esc(s.home)}" target="_blank" rel="nofollow noopener">${esc(short)} 학교 홈페이지 ↗</a></p>` : ''}
+    </section>
+    <section class="detail-section">
+      <h2 class="section-title left">${esc(short)} 과목별 공부법</h2>
+      <div class="study-grid">${guide.map((g) => `<article class="card study-card"><h3>${esc(short)} ${esc(g.subject)} 과외</h3><p>${esc(g.text)}</p></article>`).join('')}</div>
+    </section>
+    <section class="detail-section">
+      <h2 class="section-title left">${esc(short)} 내신 대비 순서</h2>
+      <ol class="steps">${steps.map(([t, d], i) => `<li class="card step"><span class="step-no">${i + 1}</span><h3>${esc(t)}</h3><p>${esc(d)}</p></li>`).join('')}</ol>
+      <div class="trial-cta detail-cta"><a class="btn btn-primary btn-lg" href="${esc(apply)}" rel="nofollow">무료 학습 30분 신청</a></div>
+    </section>
+    <section class="detail-section">
+      <h2 class="section-title left">${esc(short)} 과외 키워드</h2>
+      <ul class="keyword-list">${keywords.map((k) => `<li>${esc(k)}</li>`).join('')}</ul>
+    </section>
+    ${nearby.length ? `<section class="detail-section">
+      <h2 class="section-title left">${esc(city.label)} 다른 ${esc(s.kind)}</h2>
+      <div class="school-grid">${nearby.map((x) => `<a class="card school-card" href="../${esc(encodeURIComponent(x[4]))}/"><b class="school-name">${esc(x[0])}</b><span>${esc(city.label)} ${esc(shortSchool(x[0]))} 과외</span></a>`).join('')}</div>
+    </section>` : ''}`
   }, opts);
 }
 

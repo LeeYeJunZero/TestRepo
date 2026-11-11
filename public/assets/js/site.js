@@ -347,11 +347,10 @@
       const region = finder.dataset.region || '';
       const rows = index.s.filter(([name, k, c]) => (kind === 'all' || KIND_LABEL[k] === kind) && (!region || index.c[c][0] === region) && (!q || name.toLowerCase().includes(q)));
       resultsGrid.textContent = '';
-      rows.slice(0, MAX_RESULTS).forEach(([name, k, c], i) => {
+      rows.slice(0, MAX_RESULTS).forEach(([name, k, c, code], i) => {
         const a = document.createElement('a');
         a.className = 'card school-card pop-in';
-        a.rel = 'nofollow';
-        a.href = `${finder.dataset.root}?school=${encodeURIComponent(name)}`;
+        a.href = `${finder.dataset.root}schools/${index.c[c][0]}/${encodeURI(index.c[c][2])}/${encodeURIComponent(code)}/`;
         a.style.setProperty('--d', `${Math.min(i, 12) * 28}ms`);
         const b = document.createElement('b'); b.className = 'school-name'; paintName(b, name, q);
         const s = document.createElement('span'); s.textContent = `${index.c[c][1]} · ${k === 3 ? '기타 학교' : KIND_LABEL[k]}`;
@@ -595,7 +594,7 @@
         stack.style.setProperty('--px', `${((e.clientX - r.left) / r.width - 0.5) * 22}px`);
         stack.style.setProperty('--py', `${((e.clientY - r.top) / r.height - 0.5) * 22}px`);
       });
-      document.querySelectorAll('.subject-card, .worry, .exam, .step, .school-card').forEach((el) => {
+      document.querySelectorAll('.subject-card, .worry, .exam, .step, .school-card, .study-card, .fact-card').forEach((el) => {
         el.addEventListener('pointermove', (e) => {
           const r = el.getBoundingClientRect();
           const x = (e.clientX - r.left) / r.width - 0.5, y = (e.clientY - r.top) / r.height - 0.5;
@@ -619,16 +618,6 @@
         });
         b.addEventListener('pointerleave', () => { b.style.transform = ''; });
       });
-
-      // 마우스를 따라오는 원
-      const ring = document.createElement('div');
-      ring.className = 'cursor-ring'; ring.setAttribute('aria-hidden', 'true');
-      body.appendChild(ring);
-      window.addEventListener('pointermove', (e) => {
-        ring.style.opacity = '1';
-        ring.style.left = `${e.clientX}px`; ring.style.top = `${e.clientY}px`;
-        ring.classList.toggle('big', !!e.target.closest?.('a, button, summary'));
-      }, { passive: true });
     }
   }
 })();

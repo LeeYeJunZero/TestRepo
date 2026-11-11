@@ -7,10 +7,12 @@ import path from 'node:path';
 import crypto from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { DEFAULT_SITE, SITE_KEY, SUBJECTS } from '../src/defaults.js';
-import { renderSite, renderMaintenance, renderRedirect, renderRobots, renderSitemap, renderSchoolsIndex, renderSchoolRegion, renderSchoolCity, schoolCitiesOf, schoolKindKey, SCHOOL_KINDS, SCHOOL_REGIONS } from '../src/render.js';
+import { renderSite, renderMaintenance, renderRedirect, renderRobots, renderSitemap, renderSchoolsIndex, renderSchoolRegion, renderSchoolCity, renderSchoolDetail, schoolCitiesOf, schoolKindKey, SCHOOL_KINDS, SCHOOL_REGIONS } from '../src/render.js';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-const out = path.join(root, 'dist');
+// STATIC_OUT: 출력 폴더 변경, STATIC_SCHOOL_REGIONS: 학교 상세 페이지를 만들 시·도 slug 제한 (쉼표 구분, 개발용)
+const out = process.env.STATIC_OUT || path.join(root, 'dist');
+const detailRegions = (process.env.STATIC_SCHOOL_REGIONS || '').split(',').filter(Boolean);
 let fileCfg = {};
 try { fileCfg = JSON.parse(fs.readFileSync(path.join(root, 'pages.config.json'), 'utf8')); } catch { /* 없음 */ }
 // (Actions 에서 미설정 변수는 빈 문자열이므로 || 사용)
@@ -55,7 +57,7 @@ const assetV = crypto.createHash('sha1').update(['css/base.css', 'css/material.c
 const opts = { assetV, assetBase: 'assets', apiBase, track: true, static: true, canonical, verify: fileCfg.verification || {}, schoolRegions };
 fs.mkdirSync(path.join(out, 'schools'), { recursive: true });
 fs.writeFileSync(path.join(out, 'schools', 'index.html'), renderSchoolsIndex(site, schoolRegions, schools.length, opts));
-// 학교 이름 검색용 목록 (입력 시에만 내려받음): c = [시·도 slug, 표시 지역], s = [학교명, 학교급 번호, c 번호]
+// 학교 이름 검색용 목록 (입력 시에만 내려받음): c = [시·도 slug, 표시 지역, 폴더], s = [학교명, 학교급 번호, c 번호, 학교코드]
 const searchIndex = { c: [], s: [] };
 const kindIndex = Object.fromEntries(SCHOOL_KINDS.map(([k], i) => [k, i]));
 const schoolPaths = ['schools/'];
@@ -68,8 +70,14 @@ for (const r of schoolRegions) {
     fs.mkdirSync(path.join(dir, c.path), { recursive: true });
     fs.writeFileSync(path.join(dir, c.path, 'index.html'), renderSchoolCity(site, r, c, opts));
     schoolPaths.push(`schools/${r.slug}/${c.path}/`);
-    const ci = searchIndex.c.push([r.slug, c.label]) - 1;
-    for (const s of c.schools) searchIndex.s.push([s[0], kindIndex[schoolKindKey(s[1])], ci]);
+    const ci = searchIndex.c.push([r.slug, c.label, c.path]) - 1;
+    for (const s of c.schools) {
+      searchIndex.s.push([s[0], kindIndex[schoolKindKey(s[1])], ci, s[4]]);
+      if (detailRegions.length && !detailRegions.includes(r.slug)) continue;
+      fs.mkdirSync(path.join(dir, c.path, s[4]), { recursive: true });
+      fs.writeFileSync(path.join(dir, c.path, s[4], 'index.html'), renderSchoolDetail(site, r, c, s, opts));
+      schoolPaths.push(`schools/${r.slug}/${c.path}/${s[4]}/`);
+    }
   }
 }
 fs.writeFileSync(path.join(out, 'schools', 'search.json'), JSON.stringify(searchIndex));

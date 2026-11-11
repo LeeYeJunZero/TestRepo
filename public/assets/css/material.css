@@ -26,21 +26,21 @@
 .school-section-head { display: flex; align-items: center; gap: 10px; margin-bottom: 14px; }
 .school-section-head h2 { margin: 0; font-size: 24px; font-weight: 800; }
 .count-badge { padding: 2px 10px; font-size: 13px; font-weight: 700; color: var(--on-primary-container); background: var(--primary-container); border-radius: 100px; }
-.school-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; }
+.school-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; }
 .theme-material .school-card.card { display: grid; align-content: start; gap: 4px; padding: 16px 18px; text-decoration: none; border-radius: 14px; box-shadow: none; border: 1px solid var(--outline-variant); }
 .theme-material .school-card.card:hover { border-color: var(--primary); box-shadow: var(--elev-2); }
-.school-name { position: relative; font-weight: 700; }
+.school-name { position: relative; font-weight: 700; overflow-wrap: anywhere; }
 .school-name mark { color: var(--on-primary); background: var(--primary); border-radius: 3px; padding: 0 2px; }
 .school-card span { position: relative; font-size: 13px; opacity: .72; }
 .school-empty, .school-result-note { margin: 24px 0 12px; opacity: .75; }
 .school-source { margin-top: 40px; font-size: 13px; opacity: .65; }
-@media (max-width: 980px) { .school-grid { grid-template-columns: repeat(2, 1fr); } }
+@media (max-width: 980px) { .school-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 @media (max-width: 720px) {
   .school-finder { flex-direction: column; align-items: stretch; }
   .kind-chips { overflow-x: auto; scrollbar-width: none; }
 }
 @media (max-width: 480px) {
-  .school-grid { grid-template-columns: 1fr; }
+  .school-grid { grid-template-columns: minmax(0, 1fr); }
   .kind-chips { gap: 4px; }
   .kind-chip { padding: 8px 10px; font-size: 13px; }
 }
@@ -57,6 +57,42 @@
   .school-section-head.reveal.in { animation: side-in .6s cubic-bezier(.16, 1, .3, 1) backwards; }
   .kind-chip:hover { transform: translateY(-2px); }
   .kind-chip { transition: color .2s, border-color .2s, transform .15s; }
+}
+
+/* 학교 상세 페이지 */
+.detail-section { margin-top: 44px; }
+.school-page .section-title.left { margin-bottom: 16px; font-size: clamp(22px, 2.8vw, 28px); }
+.school-hero .btn { margin-top: 18px; }
+.fact-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 12px; }
+.theme-material .fact-card.card { display: grid; align-content: start; gap: 4px; padding: 16px 18px; box-shadow: none; border: 1px solid var(--outline-variant); border-radius: 14px; }
+.fact-card span { font-size: 13px; opacity: .7; }
+.fact-card b { position: relative; font-size: 15px; }
+.theme-material .note-card.card { margin-top: 12px; padding: 20px 22px; box-shadow: none; background: var(--primary-container); border-radius: 14px; }
+.note-card h3 { font-size: 16px; margin-bottom: 6px; }
+.note-card p { opacity: 1; }
+.major-list { list-style: none; display: flex; flex-wrap: wrap; gap: 6px; padding: 0; margin: 4px 0 0; }
+.major-list li { padding: 4px 11px; font-size: 13px; font-weight: 700; color: var(--on-primary-container); background: var(--surface); border-radius: 100px; }
+.school-home { margin: 12px 0 0; font-size: 14px; }
+.school-home a { color: var(--primary); font-weight: 700; }
+.study-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
+.theme-material .study-card.card { padding: 20px 22px; box-shadow: none; border: 1px solid var(--outline-variant); border-radius: 14px; }
+.theme-material .study-card.card:hover, .theme-material .fact-card.card:hover { border-color: var(--primary); box-shadow: var(--elev-2); }
+.study-card h3 { position: relative; margin-bottom: 8px; font-size: 17px; color: var(--primary); }
+.study-card p { position: relative; font-size: 14.5px; line-height: 1.7; }
+.detail-cta { margin-top: 24px; text-align: center; }
+.keyword-list { list-style: none; display: flex; flex-wrap: wrap; gap: 6px; padding: 0; margin: 0; }
+.keyword-list li { padding: 6px 13px; font-size: 13px; font-weight: 600; border: 1px solid var(--outline-variant); border-radius: 100px; }
+.school-page .steps { margin-top: 28px; }
+@media (max-width: 980px) { .study-grid { grid-template-columns: repeat(2, 1fr); } }
+@media (max-width: 640px) { .study-grid { grid-template-columns: 1fr; } }
+@media (prefers-reduced-motion: no-preference) {
+  @keyframes key-in { from { opacity: 0; transform: translateY(10px) scale(.9); } }
+  .keyword-list li, .major-list li { animation: key-in .4s cubic-bezier(.34, 1.56, .64, 1) backwards; }
+  .keyword-list li:nth-child(3n+2), .major-list li:nth-child(3n+2) { animation-delay: .08s; }
+  .keyword-list li:nth-child(3n), .major-list li:nth-child(3n) { animation-delay: .16s; }
+  .keyword-list li:hover { color: var(--on-primary); background: var(--primary); border-color: var(--primary); transform: translateY(-2px); }
+  .keyword-list li { transition: background .15s, color .15s, transform .15s; }
+  .study-card, .fact-card { transition: box-shadow .2s, transform .12s ease-out, border-color .2s; }
 }
 
 /* ─── MATERIAL DESIGN (M3) ───
@@ -391,11 +427,6 @@ main { overflow-x: clip; }
   .has-deco { position: relative; overflow: hidden; }
   .has-deco > .wrap { position: relative; z-index: 1; }
   .deco { position: absolute; top: 8%; right: 3%; font-size: min(36vw, 400px); font-weight: 900; line-height: 1; color: var(--primary); opacity: .06; pointer-events: none; will-change: transform; }
-
-  /* 마우스 원 */
-  .cursor-ring { position: fixed; left: 0; top: 0; z-index: 90; width: 30px; height: 30px; margin: -15px 0 0 -15px; border: 2px solid var(--primary); border-radius: 50%; opacity: 0; pointer-events: none; transition: left .09s ease-out, top .09s ease-out, transform .18s, background .18s; }
-  .cursor-ring.big { transform: scale(1.8); background: color-mix(in srgb, var(--primary) 16%, transparent); }
-  html:has(.lead-modal[open]) .cursor-ring { display: none; }
 
   /* 팝업 */
   .lead-modal[open] { animation: modal-in .55s cubic-bezier(.2, .9, .3, 1); transform-origin: center bottom; }
