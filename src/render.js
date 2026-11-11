@@ -372,6 +372,10 @@ ${site.notice ? `<div class="notice" role="status"><div class="wrap">${esc(site.
     <strong>${esc(site.name)}</strong>
     <span>${esc(site.tagline)}</span>
     <span>${[site.phone, site.email].filter(Boolean).map(esc).join(' · ')}</span>
+    ${opts.schoolRegions?.length ? `<nav class="school-links" aria-label="지역별 학교">
+      <a class="school-links-all" href="schools/">전국 학교별 1:1 맞춤 수업</a>
+      ${opts.schoolRegions.map((r) => `<a href="schools/${esc(r.slug)}/">${esc(r.short)}</a>`).join('')}
+    </nav>` : ''}
     <small>© ${new Date().getFullYear()} ${esc(site.name)}. All rights reserved.</small>
   </div>
 </footer>
@@ -401,12 +405,104 @@ export function renderRobots(canonical) {
   return `User-agent: *\nAllow: /\n${canonical ? `\nSitemap: ${canonical}sitemap.xml\n` : ''}`;
 }
 
-export function renderSitemap(canonical, lastmod) {
+export function renderSitemap(canonical, lastmod, paths = []) {
   return `<?xml version="1.0" encoding="UTF-8"?>
 <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
   <url><loc>${esc(canonical)}</loc><lastmod>${esc(lastmod)}</lastmod><changefreq>weekly</changefreq><priority>1.0</priority></url>
-</urlset>
+${paths.map((p) => `  <url><loc>${esc(canonical + p)}</loc><lastmod>${esc(lastmod)}</lastmod><changefreq>monthly</changefreq><priority>0.6</priority></url>\n`).join('')}</urlset>
 `;
+}
+
+// ───── 전국 학교 페이지 (src/schools.json → dist/schools/) ─────
+// 시·도 → 주소·메뉴 표기. schools.json 을 갱신했을 때 새 지역이 있으면 빌드가 실패하므로 여기에 추가
+export const SCHOOL_REGIONS = [
+  ['서울특별시', 'seoul', '서울'], ['부산광역시', 'busan', '부산'], ['대구광역시', 'daegu', '대구'], ['인천광역시', 'incheon', '인천'],
+  ['전남광주통합특별시(광주)', 'gwangju', '광주'], ['대전광역시', 'daejeon', '대전'], ['울산광역시', 'ulsan', '울산'], ['세종특별자치시', 'sejong', '세종'],
+  ['경기도', 'gyeonggi', '경기'], ['강원특별자치도', 'gangwon', '강원'], ['충청북도', 'chungbuk', '충북'], ['충청남도', 'chungnam', '충남'],
+  ['전북특별자치도', 'jeonbuk', '전북'], ['전남광주통합특별시(전남)', 'jeonnam', '전남'], ['경상북도', 'gyeongbuk', '경북'], ['경상남도', 'gyeongnam', '경남'],
+  ['제주특별자치도', 'jeju', '제주'], ['재외한국학교', 'overseas', '재외한국학교']
+].map(([name, slug, short]) => ({ name, slug, short }));
+
+const KIND_ORDER = ['초등학교', '중학교', '고등학교', '특수학교'];
+const groupBy = (list, i) => {
+  const m = new Map();
+  for (const x of list) { if (!m.has(x[i])) m.set(x[i], []); m.get(x[i]).push(x); }
+  return m;
+};
+const kindRank = (k) => { const i = KIND_ORDER.indexOf(k); return i < 0 ? KIND_ORDER.length : i; };
+
+function schoolPage(site, { title, desc, path: pagePath, root, body }, opts) {
+  const A = `${root}assets`;
+  const url = opts.canonical ? opts.canonical + pagePath : '';
+  return `<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>${esc(title)}</title>
+<meta name="description" content="${esc(desc)}">
+<meta name="robots" content="index,follow">
+${url ? `<link rel="canonical" href="${esc(url)}">
+<meta property="og:url" content="${esc(url)}">` : ''}
+<meta property="og:type" content="website">
+<meta property="og:locale" content="ko_KR">
+<meta property="og:site_name" content="${esc(site.name)}">
+<meta property="og:title" content="${esc(title)}">
+<meta property="og:description" content="${esc(desc)}">
+<meta name="theme-color" content="#6750a4">
+${FONT}
+<link rel="stylesheet" href="${A}/css/base.css">
+<link rel="stylesheet" href="${A}/css/material.css">
+</head>
+<body class="theme-material school-page" data-site="${esc(site.key)}" data-api="${esc(opts.apiBase ?? '')}" data-track="1" data-static="1">
+<header class="nav">
+  <div class="wrap nav-inner">
+    <a class="brand" href="${root}"><span class="brand-mark">${esc(site.heroSymbol)}</span><span>${esc(site.name)}</span></a>
+    <a class="btn btn-primary" href="${root}#apply">무료 학습 30분</a>
+  </div>
+</header>
+<main class="wrap school-main">
+${body}
+<p class="school-source">학교 목록은 교육부 나이스(NEIS) 교육정보 개방 포털의 공개 자료를 기준으로 합니다. ${esc(site.name)}은(는) 각 학교와 제휴 관계가 없습니다.</p>
+</main>
+<footer class="footer"><div class="wrap"><strong>${esc(site.name)}</strong><span>${esc(site.tagline)}</span><small>© ${new Date().getFullYear()} ${esc(site.name)}. All rights reserved.</small></div></footer>
+<script src="${A}/js/site.js" defer></script>
+</body>
+</html>`;
+}
+
+const regionNav = (regions, prefix, current) => `<nav class="school-regions" aria-label="지역 선택">${regions.map((r) =>
+  `<a href="${prefix}${esc(r.slug)}/"${r.slug === current ? ' aria-current="page"' : ''}>${esc(r.short)}</a>`).join('')}</nav>`;
+
+export function renderSchoolsIndex(site, regions, total, opts = {}) {
+  return schoolPage(site, {
+    title: `전국 초·중·고 학교별 1:1 맞춤 수업 | ${site.name}`,
+    desc: `전국 ${total.toLocaleString('ko-KR')}개 학교 학생을 위한 내신·모의고사 대비 1:1 맞춤 수업. 무료 학습 30분을 먼저 받아 보세요.`,
+    path: 'schools/', root: '../',
+    body: `<h1>전국 학교별 1:1 맞춤 수업</h1>
+<p class="school-lead">전국 ${total.toLocaleString('ko-KR')}개 학교 학생의 중등·고등 내신과 모의고사를 1:1로 준비합니다. ${site.area ? `수업 지역: ${esc(site.area)}.` : ''}</p>
+<a class="btn btn-primary btn-lg" href="../#apply">무료 학습 30분 신청</a>
+<ul class="school-index">${regions.map((r) => `<li><a href="${esc(r.slug)}/"><b>${esc(r.name)}</b><span>${r.count.toLocaleString('ko-KR')}개 학교</span></a></li>`).join('')}</ul>`
+  }, opts);
+}
+
+export function renderSchoolRegion(site, region, regions, schools, opts = {}) {
+  const n = schools.length.toLocaleString('ko-KR');
+  const cities = [...groupBy(schools, 3)].sort(([a], [b]) => (a === '기타') - (b === '기타') || a.localeCompare(b, 'ko'));
+  return schoolPage(site, {
+    title: `${region.name} 초·중·고 1:1 맞춤 과외 · 내신 대비 | ${site.name}`,
+    desc: `${region.name} ${n}개 학교 학생을 위한 내신·모의고사 대비 1:1 맞춤 수업. 무료 학습 30분을 먼저 받아 보세요.`,
+    path: `schools/${region.slug}/`, root: '../../',
+    body: `<h1>${esc(region.name)} 학교별 1:1 맞춤 수업</h1>
+<p class="school-lead">${esc(region.name)} ${n}개 학교 학생의 중등·고등 내신과 모의고사를 1:1로 준비합니다. ${site.area ? `수업 지역: ${esc(site.area)}.` : ''}</p>
+<a class="btn btn-primary btn-lg" href="../../#apply">무료 학습 30분 신청</a>
+${regionNav(regions, '../', region.slug)}
+${cities.map(([city, list]) => `<section class="school-city">
+<h2>${city === '기타' ? esc(region.name) : `${esc(city)}`} 내신 대비 1:1 과외</h2>
+${[...groupBy(list, 1)].sort(([a], [b]) => kindRank(a) - kindRank(b) || a.localeCompare(b, 'ko')).map(([kind, xs]) => `<h3>${esc(kind)} <small>${xs.length}</small></h3>
+<ul class="school-list">${xs.map((x) => `<li>${esc(x[0])}</li>`).join('')}</ul>`).join('\n')}
+</section>`).join('\n')}`
+  }, opts);
 }
 
 // 기존 /math/ /english/ /coding/ 주소 → 통합 페이지 해당 과목으로 이동 (GitHub Pages 용)

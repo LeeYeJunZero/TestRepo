@@ -275,6 +275,16 @@ test('R-14 정적 빌드: dist/index.html 통합 페이지 + 기존 과목 주�
     assert.ok(fs.readFileSync(path.join(root, 'dist', s, 'index.html'), 'utf8').includes(`url=../#subject-${s}`));
   }
   assert.ok(fs.existsSync(path.join(root, 'dist', 'assets', 'js', 'site.js')));
+
+  // 전국 학교 페이지: schools.json 의 모든 학교가 지역 페이지에 한 번씩 포함
+  const schools = JSON.parse(fs.readFileSync(path.join(root, 'src', 'schools.json'), 'utf8'));
+  const dirs = fs.readdirSync(path.join(root, 'dist', 'schools'), { withFileTypes: true }).filter((d) => d.isDirectory()).map((d) => d.name);
+  let listed = 0;
+  for (const d of dirs) listed += (fs.readFileSync(path.join(root, 'dist', 'schools', d, 'index.html'), 'utf8').match(/<li>[^<]+<\/li>/g) || []).length;
+  assert.equal(listed, schools.length);
+  assert.ok(html.includes('href="schools/seoul/"'), '메인 푸터에 지역 링크');
+  assert.ok(fs.readFileSync(path.join(root, 'dist', 'schools', 'seoul', 'index.html'), 'utf8').includes('대치중학교'));
+  assert.ok(!html.includes('대치중학교'), '메인 페이지에는 학교 목록을 넣지 않음');
 });
 
 test('R-15 검색엔진: robots·sitemap·canonical·OG·구조화 데이터·소유확인 메타', async () => {

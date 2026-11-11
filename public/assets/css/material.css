@@ -1,3 +1,25 @@
+/* 전국 학교 페이지 */
+.school-links { flex-basis: 100%; display: flex; flex-wrap: wrap; gap: 4px 12px; font-size: 13px; }
+.school-links a { text-decoration: none; opacity: .75; }
+.school-links a:hover { opacity: 1; text-decoration: underline; }
+.school-links .school-links-all { font-weight: 800; opacity: 1; }
+.school-main { padding-top: 48px; padding-bottom: 64px; }
+.school-main h1 { font-size: clamp(28px, 4vw, 40px); font-weight: 800; }
+.school-lead { font-size: 17px; max-width: 720px; opacity: .85; }
+.school-regions { display: flex; flex-wrap: wrap; gap: 6px; margin: 28px 0 8px; }
+.school-regions a { padding: 6px 13px; font-size: 14px; font-weight: 700; text-decoration: none; border: 1px solid var(--outline-variant); border-radius: 100px; }
+.school-regions a[aria-current="page"] { color: #fff; background: var(--primary); border-color: var(--primary); }
+.school-index { list-style: none; padding: 0; margin: 32px 0 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 10px; }
+.school-index a { display: grid; gap: 2px; padding: 16px 18px; text-decoration: none; background: var(--surface-1); border-radius: 14px; }
+.school-index a:hover { background: var(--primary-container); }
+.school-index span { font-size: 13px; opacity: .7; }
+.school-city { margin-top: 36px; padding-top: 24px; border-top: 1px solid var(--outline-variant); }
+.school-city h2 { font-size: 22px; font-weight: 800; }
+.school-city h3 { margin: 16px 0 8px; font-size: 15px; color: var(--primary); }
+.school-city h3 small { font-weight: 600; opacity: .7; }
+.school-list { list-style: none; padding: 0; margin: 0; display: flex; flex-wrap: wrap; gap: 4px 16px; font-size: 14px; }
+.school-source { margin-top: 40px; font-size: 13px; opacity: .65; }
+
 /* ─── MATERIAL DESIGN (M3) ───
    톤 컨테이너, 엘리베이션 그림자, 큰 라운드, 필(pill) 버튼, 리플, FAB */
 :root {
