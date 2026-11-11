@@ -93,7 +93,7 @@ const inqText = (r) => [
   `👤 ${h(r.name)}  📞 ${h(r.phone)}`,
   `🎓 ${h(r.grade)}${r.subject ? `  📚 ${h(r.subject)}` : ''}`,
   r.mode ? `🖥 ${h(r.mode)}` : '',
-  r.school ? `🏫 ${h(r.school)}` : '',
+  r.school ? `🏫 ${h(r.school)} · <a href="https://edu.naver.com/school-search?q=${encodeURIComponent(r.school.replace(/\s*\(.*$/, ''))}">학교 정보</a>` : '',
   r.address ? `🏠 ${h(r.address)}` : '',
   r.message ? `💬 ${h(r.message)}` : '',
   r.memo ? `📝 ${h(r.memo)}` : '',

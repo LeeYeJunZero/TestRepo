@@ -70,7 +70,7 @@
   // 3) 클릭: 링크·버튼·FAQ. 과목 영역 안이면 해당 과목으로 집계
   document.addEventListener('click', (e) => {
     const el = e.target.closest('a, button, summary');
-    if (!el || el.closest('.hp')) return;
+    if (!el || el.closest('.hp, [data-no-track]')) return;
     const label = (el.getAttribute('aria-label') || el.textContent || '').replace(/\s+/g, ' ').trim().slice(0, 60);
     const subject = el.closest('[data-subject]')?.dataset.subject || '';
     post('/api/event', { kind: 'click', subject, label, href: el.getAttribute('href') || '' });
@@ -173,6 +173,122 @@
       }
     });
 
+    // 학교: NEIS 학교기본정보에서 검색해 선택 (인증키 없이는 검색당 최대 5건이라 지역·학년으로 좁힘)
+    const NEIS_SCHOOL = 'https://open.neis.go.kr/hub/schoolInfo';
+    const schoolBox = leadForm.querySelector('.lead-school');
+    const schoolSearch = schoolBox.querySelector('[data-school-search]');
+    const schoolQ = schoolBox.querySelector('[data-school-q]');
+    const schoolRegion = schoolBox.querySelector('[data-school-region]');
+    const schoolResults = schoolBox.querySelector('.school-results');
+    const schoolPicked = schoolBox.querySelector('.school-picked');
+    const schoolManual = schoolBox.querySelector('[data-school-manual]');
+    let pickedSchool = null, manualSchool = false, schoolKey = '', schoolSeq = 0, schoolTimer;
+    const kindOfGrade = () => {
+      const g = fieldOf('grade').value;
+      return g.startsWith('초') ? '초등학교' : g.startsWith('중') ? '중학교' : g.startsWith('고') ? '고등학교' : '';
+    };
+    const schoolNote = (text) => {
+      schoolResults.textContent = '';
+      const p = document.createElement('p');
+      p.className = 'school-note'; p.textContent = text;
+      schoolResults.appendChild(p);
+      schoolResults.hidden = false;
+    };
+    const showSchoolPicker = () => {
+      schoolPicked.hidden = true;
+      schoolSearch.hidden = false;
+      schoolManual.hidden = false;
+    };
+    const clearSchool = () => {
+      pickedSchool = null; manualSchool = false; schoolKey = ''; schoolSeq++;
+      clearTimeout(schoolTimer);
+      fieldOf('school').value = ''; schoolQ.value = ''; schoolRegion.value = '';
+      schoolQ.placeholder = '학교 이름 검색 *';
+      schoolRegion.hidden = false;
+      schoolManual.textContent = '찾는 학교가 없어요 (직접 입력)';
+      schoolResults.hidden = true; schoolResults.textContent = '';
+      showSchoolPicker();
+    };
+    const pickSchool = (row) => {
+      pickedSchool = row;
+      leadMsg.textContent = '';
+      fieldOf('school').value = `${row.SCHUL_NM} (${row.LCTN_SC_NM})`;
+      schoolBox.querySelector('[data-school-name]').textContent = row.SCHUL_NM;
+      schoolBox.querySelector('[data-school-addr]').textContent = (row.ORG_RDNMA || row.LCTN_SC_NM).trim();
+      const level = { 고등학교: 'high', 중학교: 'middle' }[row.SCHUL_KND_SC_NM];
+      schoolBox.querySelector('[data-school-link]').href = `https://edu.naver.com/school-search?${level ? `level=${level}&` : ''}q=${encodeURIComponent(row.SCHUL_NM)}`;
+      schoolResults.hidden = true;
+      schoolSearch.hidden = true; schoolManual.hidden = true; schoolPicked.hidden = false;
+    };
+    const runSchoolSearch = async () => {
+      if (manualSchool || pickedSchool) return;
+      const name = schoolQ.value.trim();
+      if (name.length < 2) { schoolKey = ''; schoolResults.hidden = true; return; }
+      const params = { Type: 'json', pIndex: '1', pSize: '5', SCHUL_NM: name };
+      if (kindOfGrade()) params.SCHUL_KND_SC_NM = kindOfGrade();
+      if (schoolRegion.value) params.LCTN_SC_NM = schoolRegion.value;
+      const key = JSON.stringify(params);
+      if (key === schoolKey) return;
+      schoolKey = key;
+      const seq = ++schoolSeq;
+      try {
+        const res = await fetch(`${NEIS_SCHOOL}?${new URLSearchParams(params)}`, { mode: 'cors' });
+        const j = await res.json();
+        if (seq !== schoolSeq) return;
+        const rows = j.schoolInfo?.[1]?.row;
+        if (!rows) {
+          if (j.RESULT?.CODE !== 'INFO-200') throw new Error(j.RESULT?.CODE || 'neis');
+          schoolNote('검색 결과가 없습니다. 이름을 줄여 보거나 직접 입력해 주세요.');
+          return;
+        }
+        schoolResults.textContent = '';
+        for (const row of rows) {
+          const b = document.createElement('button');
+          b.type = 'button'; b.className = 'school-item'; b.dataset.noTrack = '';
+          const n = document.createElement('b'); n.textContent = row.SCHUL_NM;
+          const a = document.createElement('span'); a.textContent = (row.ORG_RDNMA || row.LCTN_SC_NM).trim();
+          b.append(n, a);
+          b.addEventListener('click', () => pickSchool(row));
+          schoolResults.appendChild(b);
+        }
+        const total = j.schoolInfo[0].head[0].list_total_count;
+        if (total > rows.length) {
+          const p = document.createElement('p');
+          p.className = 'school-note';
+          p.textContent = `전체 ${total}건 중 ${rows.length}건입니다. 지역을 고르거나 이름을 더 입력해 주세요.`;
+          schoolResults.appendChild(p);
+        }
+        schoolResults.hidden = false;
+      } catch {
+        if (seq !== schoolSeq) return;
+        schoolKey = '';
+        schoolNote('학교 검색이 잠시 되지 않습니다. 아래에서 직접 입력해 주세요.');
+      }
+    };
+    schoolQ.addEventListener('input', () => {
+      if (manualSchool) { fieldOf('school').value = schoolQ.value.trim(); return; }
+      clearTimeout(schoolTimer);
+      schoolTimer = setTimeout(runSchoolSearch, 300);
+    });
+    schoolQ.addEventListener('keydown', (e) => {
+      if (e.key !== 'Enter') return;
+      e.preventDefault();
+      clearTimeout(schoolTimer);
+      runSchoolSearch();
+    });
+    schoolBox.querySelector('[data-school-change]').addEventListener('click', () => { clearSchool(); schoolQ.focus(); });
+    schoolManual.addEventListener('click', () => {
+      const toManual = !manualSchool;
+      clearSchool();
+      manualSchool = toManual;
+      if (toManual) {
+        schoolQ.placeholder = '학교 이름 직접 입력 *';
+        schoolRegion.hidden = true;
+        schoolManual.textContent = '학교 검색으로 돌아가기';
+      }
+      schoolQ.focus();
+    });
+
     const addrBox = leadForm.querySelector('.lead-addr');
     const addrLayer = leadForm.querySelector('.addr-layer');
     const addrEmbed = leadForm.querySelector('.addr-embed');
@@ -184,11 +300,13 @@
 
     // 대상에 해당하지 않는 항목은 숨김: 성인 → 학교, 화상수업 → 주소
     const syncFields = () => {
-      const school = fieldOf('school');
-      school.hidden = fieldOf('grade').value === '성인';
+      schoolBox.hidden = fieldOf('grade').value === '성인';
       addrBox.hidden = fieldOf('mode').value === '화상수업';
-      if (school.hidden) school.value = '';
+      if (schoolBox.hidden) clearSchool();
       if (addrBox.hidden) clearAddr();
+      // 학년을 바꿔 학교급이 달라지면 고른 학교를 취소, 검색 중이면 새 조건으로 재검색
+      if (pickedSchool && kindOfGrade() && pickedSchool.SCHUL_KND_SC_NM !== kindOfGrade()) clearSchool();
+      runSchoolSearch();
     };
     leadForm.addEventListener('change', syncFields);
 
@@ -245,7 +363,7 @@
       if (!val('mode')) return fail('수업 방식을 선택해 주세요.');
       if (!val('name')) return fail('이름을 입력해 주세요.', 'name');
       if (!/^[0-9+\-() ]{8,20}$/.test(val('phone'))) return fail('연락처를 정확히 입력해 주세요.', 'phone');
-      if (!fieldOf('school').hidden && !val('school')) return fail('학교를 입력해 주세요.', 'school');
+      if (!schoolBox.hidden && !val('school')) return fail('학교를 검색해 선택해 주세요.');
       if (!addrBox.hidden && !val('address')) return fail('주소 검색으로 주소를 선택해 주세요.');
       if (!val('message')) return fail('특이사항을 입력해 주세요.', 'message');
       if (!data.agree) return fail('개인정보 수집·이용에 동의해 주세요.');
@@ -256,7 +374,7 @@
       btn.disabled = true; btn.textContent = '전송 중…';
       try {
         await sendInquiry(data);
-        leadForm.reset(); clearAddr(); syncFields();
+        leadForm.reset(); clearAddr(); clearSchool(); syncFields();
         showStep(3);
         burst();
         try { sessionStorage.setItem(DONE_KEY, '1'); } catch { /* 저장 불가 */ }
