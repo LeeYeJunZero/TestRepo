@@ -88,8 +88,6 @@ ${color ? `<style>:root{--primary:${color}}</style>` : ''}
 const GRADES = ['초등학생', '중학생', '고등학생', '대학생·성인', '기타'];
 const LEAD_GRADES = ['초1', '초2', '초3', '초4', '초5', '초6', '중1', '중2', '중3', '고1', '고2', '고3·재수생', '성인'];
 const LEAD_MODES = ['방문수업', '화상수업'];
-// NEIS 학교기본정보의 LCTN_SC_NM 값과 일치해야 함
-const SCHOOL_REGIONS = ['서울특별시', '부산광역시', '대구광역시', '인천광역시', '전남광주통합특별시(광주)', '대전광역시', '울산광역시', '세종특별자치시', '경기도', '강원특별자치도', '충청북도', '충청남도', '전북특별자치도', '전남광주통합특별시(전남)', '경상북도', '경상남도', '제주특별자치도'];
 const MARQUEE = ['1:1 맞춤 수업', '무료 학습 30분', '중등 내신', '고등 내신', '모의고사', '학교별 기출 분석', '오답 관리', '월간 리포트'];
 
 const leadOptions = (name, values) => values.map((v) => `<label class="opt"><input type="radio" name="${name}" value="${esc(v)}"><span>${esc(v)}</span></label>`).join('');
@@ -116,20 +114,7 @@ function leadDialog(tiles) {
       <div class="lead-fields">
         <input name="name" maxlength="40" placeholder="이름 *" aria-label="이름" autocomplete="name">
         <input name="phone" maxlength="20" inputmode="tel" placeholder="연락처 *" aria-label="연락처" autocomplete="tel">
-        <div class="wide lead-school">
-          <div class="school-row" data-school-search>
-            <select data-school-region aria-label="학교 지역"><option value="">전체 지역</option>${SCHOOL_REGIONS.map((r) => `<option>${r}</option>`).join('')}</select>
-            <input data-school-q maxlength="40" placeholder="학교 이름 검색 *" aria-label="학교 이름" autocomplete="off">
-          </div>
-          <div class="school-results" hidden></div>
-          <div class="school-picked" hidden>
-            <div class="school-info"><b data-school-name></b><span data-school-addr></span></div>
-            <a data-school-link target="_blank" rel="noopener" data-no-track>학교 정보 ↗</a>
-            <button type="button" data-school-change data-no-track>변경</button>
-          </div>
-          <button class="school-manual" type="button" data-school-manual data-no-track>찾는 학교가 없어요 (직접 입력)</button>
-          <input type="hidden" name="school">
-        </div>
+        <input class="wide" name="school" maxlength="60" placeholder="학교 *" aria-label="학교">
         <div class="wide lead-addr">
           <div class="addr-row">
             <input name="address" readonly placeholder="도로명 주소 * (주소 검색으로 선택)" aria-label="도로명 주소">

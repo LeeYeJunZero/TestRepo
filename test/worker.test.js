@@ -104,7 +104,6 @@ test('W-04 상담 신청 → 즉시 알림 + 버튼 → 상태 변경', async ()
   assert.deepEqual({ ...row }, { school: '테스트중', address: '서울 테스트로 1', mode: '방문수업' });
   const text = [...tgCalls].reverse().find((c) => c.method === 'sendMessage' && /최팝업/.test(c.params.text)).params.text;
   assert.match(text, /방문수업/); assert.match(text, /테스트중/); assert.match(text, /서울 테스트로 1/);
-  assert.ok(text.includes('edu.naver.com/school-search?q=' + encodeURIComponent('테스트중')), '학교 정보 링크');
   await call('/api/inquiry', { body: { name: '이방식', phone: '010-3333-5555', mode: '상관없음', agree: true } });
   assert.equal(raw.prepare('SELECT mode FROM inquiries WHERE name = ?').get('이방식').mode, '');
 });

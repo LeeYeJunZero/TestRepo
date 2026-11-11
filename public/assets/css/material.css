@@ -180,20 +180,6 @@ html:has(.lead-modal[open]) { overflow: hidden; }
 .lead-fields { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
 .lead-fields .wide { grid-column: 1 / -1; }
 .theme-material .lead-fields input, .theme-material .lead-fields textarea { border-radius: 12px; }
-.lead-school { display: grid; gap: 8px; }
-.school-row { display: grid; grid-template-columns: minmax(104px, 34%) 1fr; gap: 8px; }
-.school-row:has(select[hidden]) { grid-template-columns: 1fr; }
-.theme-material .lead-school input, .theme-material .lead-school select { border-radius: 12px; }
-.lead-school select { padding-left: 10px; padding-right: 4px; font-size: 14px; }
-.school-results { display: grid; gap: 4px; padding: 6px; border: 1px solid var(--outline-variant); border-radius: 12px; }
-.school-item { display: grid; gap: 1px; padding: 8px 10px; text-align: left; font: inherit; color: inherit; background: none; border: 0; border-radius: 8px; cursor: pointer; }
-.school-item:hover, .school-item:focus-visible { background: var(--primary-container); }
-.school-item span, .school-info span { font-size: 13px; opacity: .72; }
-.school-note { margin: 0; padding: 6px 10px; font-size: 13px; opacity: .8; }
-.school-picked { display: flex; align-items: center; gap: 10px; padding: 10px 12px; background: var(--primary-container); border-radius: 12px; }
-.school-info { display: grid; flex: 1; min-width: 0; }
-.school-picked a, .school-picked button, .school-manual { padding: 0; font: inherit; font-size: 13px; font-weight: 700; white-space: nowrap; color: var(--primary); background: none; border: 0; cursor: pointer; }
-.school-manual { justify-self: start; }
 .lead-addr { display: grid; gap: 8px; }
 .addr-row { display: grid; grid-template-columns: 1fr auto; gap: 8px; }
 .addr-row input { cursor: pointer; }
