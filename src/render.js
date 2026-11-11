@@ -1,4 +1,4 @@
-import { SUBJECTS, SUBJECT_NAME } from './defaults.js';
+import { DEFAULT_SITE, SUBJECTS, SUBJECT_NAME } from './defaults.js';
 
 const ESC = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' };
 export const esc = (v) => String(v ?? '').replace(/[&<>"']/g, (c) => ESC[c]);
@@ -60,7 +60,7 @@ function head(site, title, A, opts = {}) {
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>${esc(title)}</title>
 <meta name="description" content="${esc(site.heroSub)}">
-<meta name="keywords" content="${esc([site.name, '과외', '1:1 과외', subjects, ...(site.subjects || []).map((s) => s.name + ' 과외')].join(', '))}">
+<meta name="keywords" content="${esc([site.name, '과외', '1:1 과외', '1:1 맞춤 수업', '무료 학습', '중등 내신', '고등 내신', '모의고사', subjects, ...(site.subjects || []).map((s) => s.name + ' 과외')].join(', '))}">
 <meta name="robots" content="index,follow,max-image-preview:large">
 ${v.google ? `<meta name="google-site-verification" content="${esc(v.google)}">` : ''}
 ${v.naver ? `<meta name="naver-site-verification" content="${esc(v.naver)}">` : ''}
@@ -86,6 +86,55 @@ ${color ? `<style>:root{--primary:${color}}</style>` : ''}
 }
 
 const GRADES = ['초등학생', '중학생', '고등학생', '대학생·성인', '기타'];
+const LEAD_GRADES = ['초1', '초2', '초3', '초4', '초5', '초6', '중1', '중2', '중3', '고1', '고2', '고3·재수생', '성인'];
+const LEAD_MODES = ['방문수업', '화상수업'];
+
+const leadOptions = (name, values) => values.map((v) => `<label class="opt"><input type="radio" name="${name}" value="${esc(v)}"><span>${esc(v)}</span></label>`).join('');
+
+// 첫 방문 팝업: 1단계 과목 선택 → 2단계 인적사항 → 완료
+function leadDialog(tiles) {
+  return `<dialog class="lead-modal" id="leadDialog" aria-labelledby="leadTitle">
+  <button class="lead-close" type="button" data-lead-close aria-label="닫기">✕</button>
+  <div class="lead-step" data-step="1">
+    <h2 id="leadTitle">어떤 과목을 도와드릴까요?</h2>
+    <p class="lead-sub">과목을 고르시면 <b>무료 학습 30분</b> 신청으로 이어집니다.</p>
+    <div class="lead-grid">
+      ${tiles.map((t) => `<button class="lead-tile" type="button" data-lead-pick="${esc(t.name)}"><b>${esc(t.icon)}</b><span>${esc(t.name)}</span></button>`).join('')}
+    </div>
+  </div>
+  <form class="lead-step" id="leadForm" data-step="2" hidden novalidate>
+    <button class="lead-back" type="button" data-lead-back>← 과목 다시 고르기</button>
+    <h2><span data-lead-picked></span> 1:1 맞춤 수업 무료 학습 30분</h2>
+    <div class="hp" aria-hidden="true"><label>웹사이트<input name="website" tabindex="-1" autocomplete="off"></label></div>
+    <fieldset><legend>학년</legend><div class="opts">${leadOptions('grade', LEAD_GRADES)}</div></fieldset>
+    <fieldset><legend>수업 방식</legend><div class="opts">${leadOptions('mode', LEAD_MODES)}</div></fieldset>
+    <fieldset><legend>연락처</legend>
+      <div class="lead-fields">
+        <input name="name" maxlength="40" placeholder="이름 *" aria-label="이름" autocomplete="name">
+        <input name="phone" maxlength="20" inputmode="tel" placeholder="연락처 *" aria-label="연락처" autocomplete="tel">
+        <input class="wide" name="school" maxlength="60" placeholder="학교 *" aria-label="학교">
+        <input class="wide" name="address" maxlength="200" placeholder="주소 (자택 도로명 주소) *" aria-label="주소" autocomplete="street-address">
+        <textarea class="wide" name="message" rows="2" maxlength="1000" placeholder="특이사항 * (원하시는 요일·시간, 아이 상황 등)" aria-label="특이사항"></textarea>
+      </div>
+    </fieldset>
+    <details class="lead-terms"><summary>개인정보 수집·이용 안내 보기</summary>
+      <p><b>수집 항목</b> 이름, 연락처, 학년, 학교, 주소, 희망 과목, 수업 방식, 특이사항<br>
+      <b>이용 목적</b> 상담 연락, 무료 학습 30분 일정 안내, 선생님 배정<br>
+      <b>보유 기간</b> 상담 종료 후 1년, 이후 파기<br>
+      동의를 거부할 수 있으나, 거부하시면 신청이 어렵습니다. 만 14세 미만 학생은 보호자가 작성해 주세요.</p>
+    </details>
+    <label class="agree"><input type="checkbox" name="agree"> [필수] 개인정보 수집·이용에 동의합니다.</label>
+    <p class="form-msg" role="alert" aria-live="polite"></p>
+    <button class="btn btn-primary btn-lg btn-block" type="submit">무료 학습 30분 신청하기</button>
+  </form>
+  <div class="lead-step lead-done" data-step="3" hidden>
+    <div class="lead-check" aria-hidden="true">✓</div>
+    <h2>신청이 접수되었습니다</h2>
+    <p class="lead-sub">24시간 이내에 연락드려 무료 학습 30분 일정을 안내해 드리겠습니다.</p>
+    <button class="btn btn-primary btn-lg btn-block" type="button" data-lead-close>확인</button>
+  </div>
+</dialog>`;
+}
 
 // opts.assetBase: 정적 파일 경로 (서버: /assets, GitHub Pages: assets)
 // opts.apiBase  : 접속 기록 API 서버 (서버 모드는 같은 origin → '')
@@ -99,10 +148,16 @@ export function renderSite(site, opts = {}) {
   const tutors = site.tutors || [];
   const f = site.features || [];
   const q = site.faqs || [];
+  // 이 항목들이 추가되기 전에 저장된 콘텐츠(로컬 DB)는 기본값으로 표시
+  const worries = site.worries ?? DEFAULT_SITE.data.worries;
+  const steps = site.steps ?? DEFAULT_SITE.data.steps;
+  const exams = site.exams ?? DEFAULT_SITE.data.exams;
+  const leadTiles = site.leadSubjects ?? DEFAULT_SITE.data.leadSubjects;
   const subjName = (k) => subjects.find((s) => s.key === k)?.name || SUBJECT_NAME[k] || '';
 
   return `${head(site, `${site.name} | ${site.tagline}`, A, opts)}
 <body class="theme-material" data-site="${esc(site.key)}" data-api="${esc(api)}" data-track="${opts.track ? '1' : '0'}" data-static="${opts.static ? '1' : '0'}">
+<div class="scroll-bar" aria-hidden="true"></div>
 ${site.notice ? `<div class="notice" role="status"><div class="wrap">${esc(site.notice)}</div></div>` : ''}
 <header class="nav">
   <div class="wrap nav-inner">
@@ -111,11 +166,12 @@ ${site.notice ? `<div class="notice" role="status"><div class="wrap">${esc(site.
       <span></span><span></span><span></span>
     </button>
     <nav class="nav-links" aria-label="주요 메뉴">
-      <a href="#subjects">과목 소개</a>
+      <a href="#worries">고민 해결</a>
+      <a href="#exams">내신·모의고사</a>
       <a href="#courses">수업 과정</a>
       <a href="#tutors">선생님</a>
       <a href="#faq">FAQ</a>
-      <a class="btn btn-primary" href="#apply">상담 신청</a>
+      <a class="btn btn-primary" href="#apply" data-lead-open>무료 학습 30분</a>
     </nav>
   </div>
 </header>
@@ -127,8 +183,12 @@ ${site.notice ? `<div class="notice" role="status"><div class="wrap">${esc(site.
         <span class="eyebrow">${esc(site.tagline)}</span>
         <h1>${br(site.heroTitle)}</h1>
         <p class="lead">${esc(site.heroSub)}</p>
+        <p class="hero-rotate">1:1로 함께 잡습니다 · <span data-rotate="중등 내신|고등 내신|모의고사 등급|서술형 대비|반복되는 실수">중등 내신</span></p>
+        <ul class="hero-badges">
+          <li>1:1 맞춤 수업</li><li>무료 학습 30분</li><li>중등·고등 내신</li><li>모의고사 대비</li>
+        </ul>
         <div class="hero-actions">
-          <a class="btn btn-primary btn-lg" href="#apply">무료 상담 신청</a>
+          <a class="btn btn-primary btn-lg" href="#apply" data-lead-open>무료 학습 30분 신청</a>
           <a class="btn btn-ghost btn-lg" href="#subjects">과목 둘러보기</a>
         </div>
       </div>
@@ -137,6 +197,45 @@ ${site.notice ? `<div class="notice" role="status"><div class="wrap">${esc(site.
       </div>
     </div>
   </section>
+
+  ${worries.length ? `<section id="worries" class="section section-alt">
+    <div class="wrap">
+      <h2 class="section-title">아이 공부, 이런 걱정이 드시나요?</h2>
+      <p class="section-sub">학부모님의 고민을 1:1 맞춤 수업으로 이렇게 해결합니다.</p>
+      <div class="grid grid-2">
+        ${worries.map((x) => `<article class="card worry">
+          <p class="worry-q">“${esc(x.worry)}”</p>
+          <p class="worry-a">${esc(x.solution)}</p>
+        </article>`).join('')}
+      </div>
+    </div>
+  </section>` : ''}
+
+  ${steps.length ? `<section id="trial" class="section trial">
+    <div class="wrap">
+      <span class="trial-badge">비용 없이 먼저 경험해 보세요</span>
+      <h2 class="section-title">무료 학습 30분</h2>
+      <p class="section-sub">등록을 결정하기 전에 1:1 수업을 직접 받아 보실 수 있습니다.</p>
+      <ol class="steps">
+        ${steps.map((x, i) => `<li class="card step"><span class="step-no">${i + 1}</span><h3>${esc(x.title)}</h3><p>${esc(x.desc)}</p></li>`).join('')}
+      </ol>
+      <div class="trial-cta"><a class="btn btn-primary btn-lg" href="#apply" data-lead-open>무료 학습 30분 신청</a></div>
+    </div>
+  </section>` : ''}
+
+  ${exams.length ? `<section id="exams" class="section section-alt">
+    <div class="wrap">
+      <h2 class="section-title">중등·고등 내신과 모의고사 대비</h2>
+      <p class="section-sub">학교와 시험에 맞춰 1:1로 준비합니다.</p>
+      <div class="grid grid-3">
+        ${exams.map((x) => `<article class="card exam">
+          <span class="chip">${esc(x.target)}</span>
+          <h3>${esc(x.title)}</h3>
+          <p>${esc(x.desc)}</p>
+        </article>`).join('')}
+      </div>
+    </div>
+  </section>` : ''}
 
   ${subjects.length ? `<section id="subjects" class="section">
     <div class="wrap">
@@ -168,7 +267,7 @@ ${site.notice ? `<div class="notice" role="status"><div class="wrap">${esc(site.
 
   <section id="courses" class="section">
     <div class="wrap">
-      <h2 class="section-title">수업 과정</h2>
+      <h2 class="section-title">1:1 맞춤 수업 과정</h2>
       <nav class="subject-tabs" aria-label="과목 바로가기">
         ${subjects.map((s) => `<a class="tab subj-${esc(s.key)}" href="#subject-${esc(s.key)}" data-subject="${esc(s.key)}">${esc(s.icon)} ${esc(s.name)}</a>`).join('')}
       </nav>
@@ -221,7 +320,7 @@ ${site.notice ? `<div class="notice" role="status"><div class="wrap">${esc(site.
   <section id="apply" class="section section-alt">
     <div class="wrap apply">
       <div class="apply-info">
-        <h2 class="section-title left">무료 상담 신청</h2>
+        <h2 class="section-title left">무료 학습 30분 신청</h2>
         <p>남겨주신 연락처로 24시간 이내에 연락드립니다.</p>
         <ul class="contact-list">
           ${site.phone ? `<li><b>전화</b><a href="tel:${tel(site.phone)}">${esc(site.phone)}</a></li>` : ''}
@@ -245,7 +344,7 @@ ${site.notice ? `<div class="notice" role="status"><div class="wrap">${esc(site.
         </div>
         <div class="field"><label for="f-msg">문의 내용</label><textarea id="f-msg" name="message" rows="4" maxlength="1000" placeholder="현재 성적, 희망 수업 요일 등을 적어주세요."></textarea></div>
         <label class="agree"><input type="checkbox" name="agree" required> 상담을 위한 개인정보(이름·연락처) 수집·이용에 동의합니다.</label>
-        <button class="btn btn-primary btn-lg btn-block" type="submit">상담 신청하기</button>
+        <button class="btn btn-primary btn-lg btn-block" type="submit">무료 학습 30분 신청하기</button>
         <p class="form-msg" role="alert" aria-live="polite"></p>
       </form>
     </div>
@@ -261,8 +360,9 @@ ${site.notice ? `<div class="notice" role="status"><div class="wrap">${esc(site.
   </div>
 </footer>
 
-<a class="fab" href="#apply" aria-label="상담 신청">상담</a>
+<a class="fab" href="#apply" aria-label="무료 학습 30분 신청" data-lead-open>무료<br>30분</a>
 <div class="toast" role="status" aria-live="polite"></div>
+${leadDialog(leadTiles)}
 <script src="${A}/js/site.js" defer></script>
 </body>
 </html>`;

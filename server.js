@@ -179,7 +179,8 @@ app.post('/api/inquiry', rateLimit('inq', 5, 10 * 60_000), (req, res) => {
   if (!name) return res.status(400).json({ error: '이름을 입력해 주세요.' });
   if (!/^[0-9+\-() ]{8,20}$/.test(phone)) return res.status(400).json({ error: '연락처를 정확히 입력해 주세요.' });
   if (!b.agree) return res.status(400).json({ error: '개인정보 수집·이용에 동의해 주세요.' });
-  const r = insertInquiry.run(SITE_KEY, name, phone, clip(b.grade, 20), clip(b.subject, 80), clip(b.message, 1000), req.ip || '');
+  const mode = ['방문수업', '화상수업'].includes(b.mode) ? b.mode : '';
+  const r = insertInquiry.run(SITE_KEY, name, phone, clip(b.grade, 20), clip(b.subject, 80), clip(b.message, 1000), clip(b.school, 60), clip(b.address, 200), mode, req.ip || '');
   bot?.onInquiry(getInquiry(Number(r.lastInsertRowid)));
   res.json({ ok: true });
 });

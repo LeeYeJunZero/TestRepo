@@ -97,6 +97,15 @@ test('W-04 상담 신청 → 즉시 알림 + 버튼 → 상태 변경', async ()
   assert.equal(raw.prepare('SELECT status FROM inquiries WHERE name = ?').get('박테스트').status, 'enrolled');
   assert.ok(tgCalls.some((c) => c.method === 'editMessageText' && /등록/.test(c.params.text)));
   assert.equal((await call('/api/inquiry', { body: { name: 'x', phone: '1', agree: true } })).status, 400);
+
+  // 첫 방문 팝업 항목: 저장 + 알림, 정해진 수업 방식만 허용
+  assert.equal((await call('/api/inquiry', { body: { name: '최팝업', phone: '010-3333-4444', grade: '중2', subject: '수학', mode: '방문수업', school: '테스트중', address: '서울 테스트로 1', message: '평일 저녁', agree: true } })).status, 200);
+  const row = raw.prepare('SELECT school, address, mode FROM inquiries WHERE name = ?').get('최팝업');
+  assert.deepEqual({ ...row }, { school: '테스트중', address: '서울 테스트로 1', mode: '방문수업' });
+  const text = [...tgCalls].reverse().find((c) => c.method === 'sendMessage' && /최팝업/.test(c.params.text)).params.text;
+  assert.match(text, /방문수업/); assert.match(text, /테스트중/); assert.match(text, /서울 테스트로 1/);
+  await call('/api/inquiry', { body: { name: '이방식', phone: '010-3333-5555', mode: '상관없음', agree: true } });
+  assert.equal(raw.prepare('SELECT mode FROM inquiries WHERE name = ?').get('이방식').mode, '');
 });
 
 test('W-05 cron: 미전송 클릭 묶음 알림 후 notified 처리', async () => {

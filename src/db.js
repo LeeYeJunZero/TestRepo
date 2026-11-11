@@ -69,6 +69,12 @@ db.exec(`
   CREATE INDEX IF NOT EXISTS idx_inq_created ON inquiries(created_at);
 `);
 
+// 기존 DB 보강: 첫 방문 팝업 신청서 항목
+{
+  const have = new Set(db.prepare('PRAGMA table_info(inquiries)').all().map((c) => c.name));
+  for (const col of ['school', 'address', 'mode']) if (!have.has(col)) db.exec(`ALTER TABLE inquiries ADD COLUMN ${col} TEXT`);
+}
+
 // 키-값 설정 (텔레그램 관리자 채팅, 알림 on/off 등)
 db.exec(`CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT NOT NULL)`);
 const getSetStmt = db.prepare('SELECT value FROM settings WHERE key = ?');
@@ -99,5 +105,5 @@ export const insertEvent = db.prepare(
   'INSERT INTO events (kind, subject, label, href, visitor, ip) VALUES (?, ?, ?, ?, ?, ?)'
 );
 export const insertInquiry = db.prepare(
-  'INSERT INTO inquiries (site, name, phone, grade, subject, message, ip) VALUES (?, ?, ?, ?, ?, ?, ?)'
+  'INSERT INTO inquiries (site, name, phone, grade, subject, message, school, address, mode, ip) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
 );

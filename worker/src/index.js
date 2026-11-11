@@ -92,6 +92,9 @@ const inqText = (r) => [
   `📩 <b>상담 신청 #${r.id}</b> · ${h(INQ_LABEL[r.status])}`,
   `👤 ${h(r.name)}  📞 ${h(r.phone)}`,
   `🎓 ${h(r.grade)}${r.subject ? `  📚 ${h(r.subject)}` : ''}`,
+  r.mode ? `🖥 ${h(r.mode)}` : '',
+  r.school ? `🏫 ${h(r.school)}` : '',
+  r.address ? `🏠 ${h(r.address)}` : '',
   r.message ? `💬 ${h(r.message)}` : '',
   r.memo ? `📝 ${h(r.memo)}` : '',
   `🕒 ${h(r.created_at)}`
@@ -360,8 +363,9 @@ export default {
       if (!name) return reply({ error: '이름을 입력해 주세요.' }, 400);
       if (!/^[0-9+\-() ]{8,20}$/.test(phone)) return reply({ error: '연락처를 정확히 입력해 주세요.' }, 400);
       if (!b.agree) return reply({ error: '개인정보 수집·이용에 동의해 주세요.' }, 400);
-      const r = await run(db, 'INSERT INTO inquiries (name, phone, grade, subject, message, ip) VALUES (?, ?, ?, ?, ?, ?)',
-        name, phone, clip(b.grade, 20), clip(b.subject, 80), clip(b.message, 1000), ip);
+      const mode = ['방문수업', '화상수업'].includes(b.mode) ? b.mode : '';
+      const r = await run(db, 'INSERT INTO inquiries (name, phone, grade, subject, message, school, address, mode, ip) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
+        name, phone, clip(b.grade, 20), clip(b.subject, 80), clip(b.message, 1000), clip(b.school, 60), clip(b.address, 200), mode, ip);
       const id = r.meta?.last_row_id;
       ctx.waitUntil((async () => {
         if (!(await notifyCfg(db)).inquiry) return;

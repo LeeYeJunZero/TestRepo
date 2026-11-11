@@ -89,9 +89,19 @@ test('R-01 퍼스트티쳐 단일 페이지: 머티리얼 디자인 + 수학·�
     assert.ok(html.includes(`id="subject-${s}"`), `과목 블록 ${s}`);
     assert.ok(html.includes(`data-impression="${s}"`), `노출 추적 ${s}`);
   }
-  for (const t of ['중등 내신 완성', '중·고등 내신 영어', '파이썬 기초 → 심화']) assert.ok(html.includes(t));
+  for (const t of ['중등 내신 완성', '중·고등 내신·모의고사 영어', '파이썬 기초 → 심화']) assert.ok(html.includes(t));
   assert.equal((await get('/assets/css/material.css')).status, 200);
   for (const gone of ['flat', 'fluent', 'portal']) assert.equal((await get(`/assets/css/${gone}.css`)).status, 404);
+});
+
+test('R-17 신뢰 콘텐츠: 1:1 맞춤·무료 학습 30분·학부모 고민·내신·모의고사, 첫 방문 팝업', async () => {
+  const html = await (await get('/')).text();
+  for (const id of ['worries', 'trial', 'exams', 'leadDialog', 'leadForm']) assert.ok(html.includes(`id="${id}"`), `#${id}`);
+  for (const t of ['1:1 맞춤 수업', '무료 학습 30분', '중등 내신', '고등 내신', '모의고사']) assert.ok(html.includes(t), t);
+  for (const n of ['grade', 'mode', 'name', 'phone', 'school', 'address', 'message', 'agree']) assert.ok(html.includes(`name="${n}"`), n);
+  assert.ok(html.includes('value="방문수업"') && html.includes('value="화상수업"'));
+  assert.ok(!html.includes('상관없음'), '수업 방식은 방문·화상 두 가지');
+  assert.ok(html.includes('보유 기간'), '수집 항목·목적·보유 기간 안내');
 });
 
 test('R-02 기존 과목별 주소 → 통합 페이지 과목 섹션으로 301', async () => {

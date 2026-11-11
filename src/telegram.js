@@ -66,6 +66,9 @@ export function createTelegramBot({ token, password, apiBase = 'https://api.tele
     `📩 <b>상담 신청 #${r.id}</b> · ${h(INQ_LABEL[r.status])}`,
     `👤 ${h(r.name)}  📞 ${h(r.phone)}`,
     `🎓 ${h(r.grade)}${r.subject ? `  📚 ${h(r.subject)}` : ''}`,
+    r.mode ? `🖥 ${h(r.mode)}` : '',
+    r.school ? `🏫 ${h(r.school)}` : '',
+    r.address ? `🏠 ${h(r.address)}` : '',
     r.message ? `💬 ${h(r.message)}` : '',
     r.memo ? `📝 ${h(r.memo)}` : '',
     `🕒 ${h(r.created_at)}`
