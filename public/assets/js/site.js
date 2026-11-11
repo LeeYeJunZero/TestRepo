@@ -252,6 +252,10 @@
       // 우편번호 + 선택한 도로명 주소 + 상세 주소를 한 줄로 전송
       data.address = val('address') ? [addrZip && `[${addrZip}]`, val('address'), val('addressDetail')].filter(Boolean).join(' ') : '';
       delete data.addressDetail;
+      // 운영 Worker 의 텔레그램 알림은 이름·연락처·학년·과목·문의 내용을 표시하므로 나머지 항목을 문의 내용에 함께 담음
+      data.message = [['수업 방식', data.mode], ['학교', val('school')], ['주소', data.address], ['특이사항', val('message')]]
+        .filter(([, v]) => v).map(([k, v]) => `${k}: ${v}`).join('\n');
+      delete data.mode; delete data.school; delete data.address;
       const label = btn.textContent;
       btn.disabled = true; btn.textContent = '전송 중…';
       try {

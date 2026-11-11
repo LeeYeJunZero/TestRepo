@@ -124,7 +124,7 @@ function leadDialog(tiles) {
           <div class="addr-layer" hidden><div class="addr-embed"></div></div>
           <input name="addressDetail" maxlength="80" placeholder="상세 주소 (동·호수)" aria-label="상세 주소" autocomplete="address-line2">
         </div>
-        <textarea class="wide" name="message" rows="2" maxlength="1000" placeholder="특이사항 * (원하시는 요일·시간, 아이 상황 등)" aria-label="특이사항"></textarea>
+        <textarea class="wide" name="message" rows="2" maxlength="700" placeholder="특이사항 * (원하시는 요일·시간, 아이 상황 등)" aria-label="특이사항"></textarea>
       </div>
     </fieldset>
     <details class="lead-terms"><summary>개인정보 수집·이용 안내 보기</summary>
