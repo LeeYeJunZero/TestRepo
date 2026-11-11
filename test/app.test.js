@@ -269,7 +269,7 @@ test('R-14 정적 빌드: dist/index.html 통합 페이지 + 기존 과목 주�
   execFileSync(process.execPath, ['scripts/build-static.js'], { cwd: root, env: { ...process.env, STATIC_API_BASE: 'https://api.ft.test' } });
   const html = fs.readFileSync(path.join(root, 'dist', 'index.html'), 'utf8');
   assert.ok(html.includes('퍼스트티쳐'));
-  assert.ok(html.includes('href="assets/css/material.css"'));
+  assert.match(html, /href="assets\/css\/material\.css\?v=[0-9a-f]{8}"/);
   assert.ok(html.includes('data-api="https://api.ft.test"') && html.includes('data-track="1"') && html.includes('data-static="1"'));
   for (const s of ['math', 'english', 'coding']) {
     assert.ok(fs.readFileSync(path.join(root, 'dist', s, 'index.html'), 'utf8').includes(`url=../#subject-${s}`));
@@ -289,6 +289,8 @@ test('R-14 정적 빌드: dist/index.html 통합 페이지 + 기존 과목 주�
   assert.ok(html.includes('<a href="schools/">학교별 과외</a>'), '메인 메뉴에 학교별 과외');
   assert.ok(fs.readFileSync(path.join(root, 'dist', 'schools', 'seoul', '강남구', 'index.html'), 'utf8').includes('대치중학교'));
   assert.ok(!html.includes('대치중학교'), '메인 페이지에는 학교 목록을 넣지 않음');
+  const gangnam = fs.readFileSync(path.join(root, 'dist', 'schools', 'seoul', '강남구', 'index.html'), 'utf8');
+  assert.ok(gangnam.includes('강남 단국대부속고 국어') && !gangnam.includes('강남 고 국어'), '부속학교 줄임말');
 });
 
 test('R-15 검색엔진: robots·sitemap·canonical·OG·구조화 데이터·소유확인 메타', async () => {

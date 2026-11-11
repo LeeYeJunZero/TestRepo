@@ -4,6 +4,7 @@
 // API 주소 우선순위: STATIC_API_BASE 환경변수 → pages.config.json (npm run tunnel 이 자동 갱신)
 import fs from 'node:fs';
 import path from 'node:path';
+import crypto from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { DEFAULT_SITE, SITE_KEY, SUBJECTS } from '../src/defaults.js';
 import { renderSite, renderMaintenance, renderRedirect, renderRobots, renderSitemap, renderSchoolsIndex, renderSchoolRegion, renderSchoolCity, schoolCitiesOf, schoolKindKey, SCHOOL_KINDS, SCHOOL_REGIONS } from '../src/render.js';
@@ -49,7 +50,9 @@ const schoolRegions = SCHOOL_REGIONS.map((r) => {
   return { ...r, count: list.length, cities: schoolCitiesOf(r, list) };
 });
 
-const opts = { assetBase: 'assets', apiBase, track: true, static: true, canonical, verify: fileCfg.verification || {}, schoolRegions };
+// 배포마다 CSS·JS 주소가 달라지게 해서, 브라우저에 남은 옛 파일이 새 페이지에 적용되지 않게 함
+const assetV = crypto.createHash('sha1').update(['css/base.css', 'css/material.css', 'js/site.js'].map((f) => fs.readFileSync(path.join(root, 'public/assets', f))).join('')).digest('hex').slice(0, 8);
+const opts = { assetV, assetBase: 'assets', apiBase, track: true, static: true, canonical, verify: fileCfg.verification || {}, schoolRegions };
 fs.mkdirSync(path.join(out, 'schools'), { recursive: true });
 fs.writeFileSync(path.join(out, 'schools', 'index.html'), renderSchoolsIndex(site, schoolRegions, schools.length, opts));
 // 학교 이름 검색용 목록 (입력 시에만 내려받음): c = [시·도 slug, 표시 지역], s = [학교명, 학교급 번호, c 번호]

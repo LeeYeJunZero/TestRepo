@@ -79,8 +79,8 @@ ${structuredData(site, canonical)}` : ''}
 <meta name="theme-color" content="${esc(color || '#6750a4')}">
 <link rel="icon" href="data:image/svg+xml,${encodeURIComponent(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64"><rect width="64" height="64" rx="16" fill="${color || '#6750a4'}"/><text x="32" y="44" font-size="34" font-family="Arial" font-weight="700" fill="#fff" text-anchor="middle">${esc(site.heroSymbol || 'F')}</text></svg>`)}">
 ${FONT}
-<link rel="stylesheet" href="${A}/css/base.css">
-<link rel="stylesheet" href="${A}/css/material.css">
+<link rel="stylesheet" href="${A}/css/base.css${opts.assetV ? `?v=${opts.assetV}` : ''}">
+<link rel="stylesheet" href="${A}/css/material.css${opts.assetV ? `?v=${opts.assetV}` : ''}">
 ${color ? `<style>:root{--primary:${color}}</style>` : ''}
 </head>`;
 }
@@ -384,7 +384,7 @@ ${site.notice ? `<div class="notice" role="status"><div class="wrap">${esc(site.
 <a class="fab" href="#apply" aria-label="무료 학습 30분 신청" data-lead-open>무료<br>30분</a>
 <div class="toast" role="status" aria-live="polite"></div>
 ${leadDialog(leadTiles)}
-<script src="${A}/js/site.js" defer></script>
+<script src="${A}/js/site.js${opts.assetV ? `?v=${opts.assetV}` : ''}" defer></script>
 </body>
 </html>`;
 }
@@ -427,9 +427,13 @@ export const SCHOOL_REGIONS = [
 // 화면에 나오는 순서. 그 외 학교급은 '기타 학교'로 묶음
 export const SCHOOL_KINDS = [['고등학교', '고등학교'], ['중학교', '중학교'], ['초등학교', '초등학교'], ['etc', '기타 학교']];
 export const schoolKindKey = (k) => (SCHOOL_KINDS.some(([x]) => x === k) ? k : 'etc');
-const shortSchool = (name) => name.replace(/^.+대학교(사범대학)?(부속|부설)/, '')
-  .replace(/여자고등학교$/, '여고').replace(/여자중학교$/, '여중')
-  .replace(/고등학교$/, '고').replace(/중학교$/, '중').replace(/초등학교$/, '초') || name;
+const shortSchool = (name) => {
+  // 대학 부속학교: '동국대…부속선화여자고등학교' → 선화여고, 고유 이름이 없으면 '단국대부속고'
+  const own = name.replace(/^.+대학교(사범대학)?(부속|부설)/, '');
+  const base = /^(여자)?(고등|중|초등)학교$/.test(own) ? name.replace(/대학교(사범대학)?(부속|부설)/, '대부속') : own;
+  return base.replace(/여자고등학교$/, '여고').replace(/여자중학교$/, '여중')
+    .replace(/고등학교$/, '고').replace(/중학교$/, '중').replace(/초등학교$/, '초');
+};
 
 // 시·도의 학교를 시·군·구 단위로 묶음. path 는 페이지 폴더 이름
 export function schoolCitiesOf(region, list) {
@@ -468,8 +472,8 @@ ${url ? `<link rel="canonical" href="${esc(url)}">
 <meta property="og:description" content="${esc(desc)}">
 <meta name="theme-color" content="#6750a4">
 ${FONT}
-<link rel="stylesheet" href="${A}/css/base.css">
-<link rel="stylesheet" href="${A}/css/material.css">
+<link rel="stylesheet" href="${A}/css/base.css${opts.assetV ? `?v=${opts.assetV}` : ''}">
+<link rel="stylesheet" href="${A}/css/material.css${opts.assetV ? `?v=${opts.assetV}` : ''}">
 </head>
 <body class="theme-material school-page" data-site="${esc(site.key)}" data-api="${esc(opts.apiBase ?? '')}" data-track="1" data-static="1">
 <div class="scroll-bar" aria-hidden="true"></div>
@@ -504,7 +508,7 @@ ${body}
 </main>
 <footer class="footer"><div class="wrap"><strong>${esc(site.name)}</strong><span>${esc(site.tagline)}</span><small>© ${new Date().getFullYear()} ${esc(site.name)}. All rights reserved.</small></div></footer>
 <a class="fab" href="${root}#apply" aria-label="무료 학습 30분 신청">무료<br>30분</a>
-<script src="${A}/js/site.js" defer></script>
+<script src="${A}/js/site.js${opts.assetV ? `?v=${opts.assetV}` : ''}" defer></script>
 </body>
 </html>`;
 }

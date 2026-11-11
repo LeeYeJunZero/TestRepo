@@ -469,7 +469,7 @@
       const glyphs = ['∑', 'π', '√', 'x²', 'Aa', '</>', '÷', '∞', '{ }', '%', 'A+', 'y=ax'];
       const small = innerWidth < 720;
       let w = 0, h = 0, on = true, raf = 0, mx = 0, my = 0;
-      const items = Array.from({ length: small ? 16 : 38 }, (_, i) => ({
+      const items = Array.from({ length: Math.max(6, Math.min(small ? 16 : 38, Math.round((canvas.clientWidth * canvas.clientHeight) / 22000))) }, (_, i) => ({
         g: glyphs[i % glyphs.length], x: Math.random(), y: Math.random(), z: 0.3 + Math.random() * 0.7,
         s: 0.00035 + Math.random() * 0.0007, p: Math.random() * 6.28
       }));
@@ -512,16 +512,18 @@
       requestAnimationFrame(step);
     };
     if ('IntersectionObserver' in window) {
+      const isSchoolPage = body.classList.contains('school-page'); // 카드가 많아 화면에 들어오기 전에 미리 표시
       const reveal = new IntersectionObserver((entries) => {
         for (const e of entries) if (e.isIntersecting) {
           e.target.classList.add('in'); reveal.unobserve(e.target);
           const num = e.target.querySelector?.('[data-count]');
           if (num) countUp(num);
         }
-      }, { threshold: 0.12, rootMargin: '0px 0px -6% 0px' });
+      }, { threshold: isSchoolPage ? 0.01 : 0.12, rootMargin: isSchoolPage ? '0px 0px 14% 0px' : '0px 0px -6% 0px' });
       document.querySelectorAll('main .section-title, main .section-sub, main .trial-badge, main .trial-ring, main .trial-cta, main .card:not(.apply-form), main .steps, main .school-section-head').forEach((el) => {
         const idx = [...el.parentElement.children].indexOf(el);
         el.style.setProperty('--d', `${Math.min(idx, 5) * 90}ms`);
+        if (el.matches('.school-card')) el.style.setProperty('--d', `${(idx % 4) * 35}ms`);
         if (el.matches('.grid > .card')) el.style.setProperty('--x', idx % 2 ? '60px' : '-60px');
         el.classList.add('reveal');
         reveal.observe(el);
