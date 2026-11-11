@@ -6,7 +6,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { DEFAULT_SITE, SITE_KEY, SUBJECTS } from '../src/defaults.js';
-import { renderSite, renderMaintenance, renderRedirect, renderRobots, renderSitemap, renderSchoolsIndex, renderSchoolRegion, SCHOOL_REGIONS } from '../src/render.js';
+import { renderSite, renderMaintenance, renderRedirect, renderRobots, renderSitemap, renderSchoolsIndex, renderSchoolRegion, renderSchoolCity, schoolCitiesOf, schoolKindKey, SCHOOL_KINDS, SCHOOL_REGIONS } from '../src/render.js';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const out = path.join(root, 'dist');
@@ -44,15 +44,32 @@ const canonical = domain ? `https://${domain}/` : undefined;
 const schools = JSON.parse(fs.readFileSync(path.join(root, 'src/schools.json'), 'utf8'));
 const unknown = [...new Set(schools.map((s) => s[2]))].filter((r) => !SCHOOL_REGIONS.some((x) => x.name === r));
 if (unknown.length) throw new Error(`src/render.js 의 SCHOOL_REGIONS 에 없는 지역: ${unknown.join(', ')}`);
-const schoolRegions = SCHOOL_REGIONS.map((r) => ({ ...r, count: schools.filter((s) => s[2] === r.name).length }));
+const schoolRegions = SCHOOL_REGIONS.map((r) => {
+  const list = schools.filter((s) => s[2] === r.name);
+  return { ...r, count: list.length, cities: schoolCitiesOf(r, list) };
+});
 
 const opts = { assetBase: 'assets', apiBase, track: true, static: true, canonical, verify: fileCfg.verification || {}, schoolRegions };
 fs.mkdirSync(path.join(out, 'schools'), { recursive: true });
 fs.writeFileSync(path.join(out, 'schools', 'index.html'), renderSchoolsIndex(site, schoolRegions, schools.length, opts));
+// 학교 이름 검색용 목록 (입력 시에만 내려받음): c = [시·도 slug, 표시 지역], s = [학교명, 학교급 번호, c 번호]
+const searchIndex = { c: [], s: [] };
+const kindIndex = Object.fromEntries(SCHOOL_KINDS.map(([k], i) => [k, i]));
+const schoolPaths = ['schools/'];
 for (const r of schoolRegions) {
-  fs.mkdirSync(path.join(out, 'schools', r.slug), { recursive: true });
-  fs.writeFileSync(path.join(out, 'schools', r.slug, 'index.html'), renderSchoolRegion(site, r, schoolRegions, schools.filter((s) => s[2] === r.name), opts));
+  const dir = path.join(out, 'schools', r.slug);
+  fs.mkdirSync(dir, { recursive: true });
+  fs.writeFileSync(path.join(dir, 'index.html'), renderSchoolRegion(site, r, opts));
+  schoolPaths.push(`schools/${r.slug}/`);
+  for (const c of r.cities) {
+    fs.mkdirSync(path.join(dir, c.path), { recursive: true });
+    fs.writeFileSync(path.join(dir, c.path, 'index.html'), renderSchoolCity(site, r, c, opts));
+    schoolPaths.push(`schools/${r.slug}/${c.path}/`);
+    const ci = searchIndex.c.push([r.slug, c.label]) - 1;
+    for (const s of c.schools) searchIndex.s.push([s[0], kindIndex[schoolKindKey(s[1])], ci]);
+  }
 }
+fs.writeFileSync(path.join(out, 'schools', 'search.json'), JSON.stringify(searchIndex));
 fs.writeFileSync(path.join(out, 'index.html'), site.status === 'maintenance' ? renderMaintenance(site, opts) : renderSite(site, opts));
 for (const s of SUBJECTS) {
   fs.mkdirSync(path.join(out, s), { recursive: true });
@@ -64,7 +81,7 @@ fs.writeFileSync(path.join(out, '.nojekyll'), '');
 if (domain) fs.writeFileSync(path.join(out, 'CNAME'), `${domain}\n`);
 // 검색엔진: robots.txt + sitemap.xml
 fs.writeFileSync(path.join(out, 'robots.txt'), renderRobots(canonical));
-if (canonical) fs.writeFileSync(path.join(out, 'sitemap.xml'), renderSitemap(canonical, new Date(Date.now() + 9 * 3600e3).toISOString().slice(0, 10), ['schools/', ...schoolRegions.map((r) => `schools/${r.slug}/`)]));
+if (canonical) fs.writeFileSync(path.join(out, 'sitemap.xml'), renderSitemap(canonical, new Date(Date.now() + 9 * 3600e3).toISOString().slice(0, 10), schoolPaths));
 // 검색엔진 HTML 파일 소유확인 (pages.config.json → verificationFiles: { "google1234.html": "내용" })
 for (const [name, body] of Object.entries(fileCfg.verificationFiles || {})) {
   if (/^[\w.-]+\.(html|txt|xml)$/.test(name)) fs.writeFileSync(path.join(out, name), body);

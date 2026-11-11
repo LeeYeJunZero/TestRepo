@@ -276,7 +276,109 @@
     // 사이트에 들어올 때마다 표시 (같은 탭에서 신청을 마친 뒤에는 제외)
     let done = false;
     try { done = !!sessionStorage.getItem(DONE_KEY); } catch { /* 저장 불가: 항상 표시 */ }
-    if (!done && !leadBlocked) openLead();
+    // 학교별 과외 페이지의 카드에서 온 경우: 학교 이름을 미리 채우고 항상 표시
+    const schoolParam = new URLSearchParams(location.search).get('school');
+    if (schoolParam) fieldOf('school').value = schoolParam.slice(0, 60);
+    if ((!done || schoolParam) && !leadBlocked) openLead();
+  }
+
+  // 학교별 과외: 학교 찾기 (시·군·구 페이지는 화면의 카드를 거르고, 전국·시·도 페이지는 목록을 내려받아 검색)
+  const finder = document.querySelector('.school-finder');
+  if (finder) {
+    const input = finder.querySelector('input');
+    const chips = [...finder.querySelectorAll('[data-kind]')];
+    const pill = finder.querySelector('.kind-pill');
+    const emptyNote = document.querySelector('.school-empty');
+    const sections = [...document.querySelectorAll('.school-section')];
+    const defaultBox = document.querySelector('[data-finder-default]');
+    const resultsArea = document.querySelector('.school-results-area');
+    const resultsGrid = document.querySelector('[data-finder-results]');
+    const resultNote = document.querySelector('.school-result-note');
+    const MAX_RESULTS = 60;
+    let kind = 'all', timer, index = null, indexLoading = null;
+
+    const norm = (s) => s.replace(/\s+/g, '').toLowerCase();
+    const paintName = (el, name, q) => {
+      const i = q ? name.toLowerCase().indexOf(q) : -1;
+      el.textContent = '';
+      if (i < 0) { el.textContent = name; return; }
+      const m = document.createElement('mark');
+      m.textContent = name.slice(i, i + q.length);
+      el.append(name.slice(0, i), m, name.slice(i + q.length));
+    };
+    const movePill = () => {
+      const on = chips.find((c) => c.dataset.kind === kind);
+      pill.style.width = `${on.offsetWidth}px`;
+      pill.style.transform = `translateX(${on.offsetLeft}px)`;
+    };
+
+    const filterLocal = (q) => {
+      let shown = 0;
+      for (const sec of sections) {
+        let n = 0;
+        for (const card of sec.querySelectorAll('.school-card')) {
+          const name = card.dataset.name;
+          const ok = (kind === 'all' || card.dataset.kind === kind) && (!q || name.toLowerCase().includes(q) || card.dataset.short.toLowerCase().includes(q));
+          card.hidden = !ok;
+          if (ok) {
+            card.style.setProperty('--d', `${Math.min(n, 8) * 24}ms`); // 필터 후 카드가 빠르게 차례로 등장
+            n++;
+            paintName(card.querySelector('.school-name'), name, q);
+          }
+        }
+        sec.hidden = !n;
+        shown += n;
+        const badge = sec.querySelector('.count-badge');
+        if (n && badge.textContent !== `${n}곳`) {
+          badge.textContent = `${n}곳`;
+          badge.classList.remove('bump'); void badge.offsetWidth; badge.classList.add('bump');
+        }
+      }
+      emptyNote.hidden = shown > 0;
+    };
+
+    const loadIndex = () => (indexLoading ||= fetch(finder.dataset.json).then((r) => r.json()).then((j) => { index = j; }).catch(() => { indexLoading = null; }));
+    const KIND_LABEL = ['고등학교', '중학교', '초등학교', 'etc'];
+    const filterRemote = async (q) => {
+      if (!q && kind === 'all') { resultsArea.hidden = true; defaultBox.hidden = false; emptyNote.hidden = true; return; }
+      if (!index) await loadIndex();
+      if (!index) { defaultBox.hidden = true; resultsArea.hidden = true; emptyNote.textContent = '학교 목록을 불러오지 못했습니다. 잠시 후 다시 시도해 주세요.'; emptyNote.hidden = false; return; }
+      if (norm(input.value) !== q) return; // 불러오는 사이 검색어가 바뀜
+      const region = finder.dataset.region || '';
+      const rows = index.s.filter(([name, k, c]) => (kind === 'all' || KIND_LABEL[k] === kind) && (!region || index.c[c][0] === region) && (!q || name.toLowerCase().includes(q)));
+      resultsGrid.textContent = '';
+      rows.slice(0, MAX_RESULTS).forEach(([name, k, c], i) => {
+        const a = document.createElement('a');
+        a.className = 'card school-card pop-in';
+        a.rel = 'nofollow';
+        a.href = `${finder.dataset.root}?school=${encodeURIComponent(name)}`;
+        a.style.setProperty('--d', `${Math.min(i, 12) * 28}ms`);
+        const b = document.createElement('b'); b.className = 'school-name'; paintName(b, name, q);
+        const s = document.createElement('span'); s.textContent = `${index.c[c][1]} · ${k === 3 ? '기타 학교' : KIND_LABEL[k]}`;
+        a.append(b, s);
+        resultsGrid.appendChild(a);
+      });
+      defaultBox.hidden = true;
+      resultsArea.hidden = !rows.length;
+      emptyNote.hidden = rows.length > 0;
+      resultNote.textContent = rows.length > MAX_RESULTS ? `${rows.length.toLocaleString('ko-KR')}곳 중 ${MAX_RESULTS}곳을 보여드립니다. 이름을 더 입력해 주세요.` : `${rows.length.toLocaleString('ko-KR')}곳을 찾았습니다.`;
+    };
+
+    const apply = () => {
+      const q = norm(input.value);
+      if (sections.length) filterLocal(q); else filterRemote(q);
+    };
+    input.addEventListener('input', () => { clearTimeout(timer); timer = setTimeout(apply, 110); });
+    if (!sections.length) input.addEventListener('focus', loadIndex, { once: true });
+    chips.forEach((c) => c.addEventListener('click', () => {
+      kind = c.dataset.kind;
+      chips.forEach((x) => { const on = x === c; x.classList.toggle('on', on); x.setAttribute('aria-pressed', String(on)); });
+      movePill();
+      apply();
+    }));
+    movePill();
+    window.addEventListener('resize', movePill, { passive: true });
+    document.fonts?.ready.then(movePill);
   }
 
   // 상담 신청
@@ -417,7 +519,7 @@
           if (num) countUp(num);
         }
       }, { threshold: 0.12, rootMargin: '0px 0px -6% 0px' });
-      document.querySelectorAll('main .section-title, main .section-sub, main .trial-badge, main .trial-ring, main .trial-cta, main .card:not(.apply-form), main .steps').forEach((el) => {
+      document.querySelectorAll('main .section-title, main .section-sub, main .trial-badge, main .trial-ring, main .trial-cta, main .card:not(.apply-form), main .steps, main .school-section-head').forEach((el) => {
         const idx = [...el.parentElement.children].indexOf(el);
         el.style.setProperty('--d', `${Math.min(idx, 5) * 90}ms`);
         if (el.matches('.grid > .card')) el.style.setProperty('--x', idx % 2 ? '60px' : '-60px');
@@ -486,11 +588,12 @@
       const hero = document.querySelector('.hero');
       const stack = document.querySelector('.hero-stack');
       hero?.addEventListener('pointermove', (e) => {
+        if (!stack) return;
         const r = hero.getBoundingClientRect();
         stack.style.setProperty('--px', `${((e.clientX - r.left) / r.width - 0.5) * 22}px`);
         stack.style.setProperty('--py', `${((e.clientY - r.top) / r.height - 0.5) * 22}px`);
       });
-      document.querySelectorAll('.subject-card, .worry, .exam, .step').forEach((el) => {
+      document.querySelectorAll('.subject-card, .worry, .exam, .step, .school-card').forEach((el) => {
         el.addEventListener('pointermove', (e) => {
           const r = el.getBoundingClientRect();
           const x = (e.clientX - r.left) / r.width - 0.5, y = (e.clientY - r.top) / r.height - 0.5;

@@ -177,6 +177,7 @@ ${site.notice ? `<div class="notice" role="status"><div class="wrap">${esc(site.
     <nav class="nav-links" aria-label="주요 메뉴">
       <a href="#worries">고민 해결</a>
       <a href="#exams">내신·모의고사</a>
+      ${opts.schoolRegions?.length ? '<a href="schools/">학교별 과외</a>' : ''}
       <a href="#courses">수업 과정</a>
       <a href="#tutors">선생님</a>
       <a href="#faq">FAQ</a>
@@ -409,11 +410,11 @@ export function renderSitemap(canonical, lastmod, paths = []) {
   return `<?xml version="1.0" encoding="UTF-8"?>
 <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
   <url><loc>${esc(canonical)}</loc><lastmod>${esc(lastmod)}</lastmod><changefreq>weekly</changefreq><priority>1.0</priority></url>
-${paths.map((p) => `  <url><loc>${esc(canonical + p)}</loc><lastmod>${esc(lastmod)}</lastmod><changefreq>monthly</changefreq><priority>0.6</priority></url>\n`).join('')}</urlset>
+${paths.map((p) => `  <url><loc>${esc(canonical + encodeURI(p))}</loc><lastmod>${esc(lastmod)}</lastmod><changefreq>monthly</changefreq><priority>0.6</priority></url>\n`).join('')}</urlset>
 `;
 }
 
-// ───── 전국 학교 페이지 (src/schools.json → dist/schools/) ─────
+// ───── 학교별 과외 페이지 (src/schools.json → dist/schools/{시·도}/{시·군·구}/) ─────
 // 시·도 → 주소·메뉴 표기. schools.json 을 갱신했을 때 새 지역이 있으면 빌드가 실패하므로 여기에 추가
 export const SCHOOL_REGIONS = [
   ['서울특별시', 'seoul', '서울'], ['부산광역시', 'busan', '부산'], ['대구광역시', 'daegu', '대구'], ['인천광역시', 'incheon', '인천'],
@@ -423,17 +424,33 @@ export const SCHOOL_REGIONS = [
   ['제주특별자치도', 'jeju', '제주'], ['재외한국학교', 'overseas', '재외한국학교']
 ].map(([name, slug, short]) => ({ name, slug, short }));
 
-const KIND_ORDER = ['초등학교', '중학교', '고등학교', '특수학교'];
-const groupBy = (list, i) => {
-  const m = new Map();
-  for (const x of list) { if (!m.has(x[i])) m.set(x[i], []); m.get(x[i]).push(x); }
-  return m;
-};
-const kindRank = (k) => { const i = KIND_ORDER.indexOf(k); return i < 0 ? KIND_ORDER.length : i; };
+// 화면에 나오는 순서. 그 외 학교급은 '기타 학교'로 묶음
+export const SCHOOL_KINDS = [['고등학교', '고등학교'], ['중학교', '중학교'], ['초등학교', '초등학교'], ['etc', '기타 학교']];
+export const schoolKindKey = (k) => (SCHOOL_KINDS.some(([x]) => x === k) ? k : 'etc');
+const shortSchool = (name) => name.replace(/^.+대학교(사범대학)?(부속|부설)/, '')
+  .replace(/여자고등학교$/, '여고').replace(/여자중학교$/, '여중')
+  .replace(/고등학교$/, '고').replace(/중학교$/, '중').replace(/초등학교$/, '초') || name;
 
-function schoolPage(site, { title, desc, path: pagePath, root, body }, opts) {
+// 시·도의 학교를 시·군·구 단위로 묶음. path 는 페이지 폴더 이름
+export function schoolCitiesOf(region, list) {
+  const m = new Map();
+  for (const x of list) {
+    const c = /(특별시|광역시|특별자치시|특별자치도|도)$/.test(x[3]) ? '기타' : x[3]; // NEIS 주소에 시·도가 중복된 학교
+    if (!m.has(c)) m.set(c, []);
+    m.get(c).push(x);
+  }
+  return [...m].sort(([a], [b]) => (a === '기타') - (b === '기타') || a.localeCompare(b, 'ko')).map(([city, schools]) => ({
+    city, schools,
+    path: city === '기타' ? 'all' : city,
+    label: city === '기타' ? region.short : city.length > 2 ? city.slice(0, -1) : `${region.short} ${city}`
+  }));
+}
+
+const count = (n) => n.toLocaleString('ko-KR');
+
+function schoolPage(site, { title, desc, path: pagePath, root, crumbs, h1, lead, body }, opts) {
   const A = `${root}assets`;
-  const url = opts.canonical ? opts.canonical + pagePath : '';
+  const url = opts.canonical ? opts.canonical + encodeURI(pagePath) : '';
   return `<!doctype html>
 <html lang="ko">
 <head>
@@ -455,53 +472,111 @@ ${FONT}
 <link rel="stylesheet" href="${A}/css/material.css">
 </head>
 <body class="theme-material school-page" data-site="${esc(site.key)}" data-api="${esc(opts.apiBase ?? '')}" data-track="1" data-static="1">
+<div class="scroll-bar" aria-hidden="true"></div>
 <header class="nav">
   <div class="wrap nav-inner">
     <a class="brand" href="${root}"><span class="brand-mark">${esc(site.heroSymbol)}</span><span>${esc(site.name)}</span></a>
-    <a class="btn btn-primary" href="${root}#apply">무료 학습 30분</a>
+    <button class="nav-toggle" type="button" aria-label="메뉴 열기" aria-expanded="false"><span></span><span></span><span></span></button>
+    <nav class="nav-links" aria-label="주요 메뉴">
+      <a href="${root}#worries">고민 해결</a>
+      <a href="${root}#exams">내신·모의고사</a>
+      <a class="active" href="${root}schools/">학교별 과외</a>
+      <a href="${root}#courses">수업 과정</a>
+      <a href="${root}#tutors">선생님</a>
+      <a href="${root}#faq">FAQ</a>
+      <a class="btn btn-primary" href="${root}#apply">무료 학습 30분</a>
+    </nav>
   </div>
 </header>
-<main class="wrap school-main">
+<main>
+  <section class="hero school-hero">
+    <canvas class="hero-canvas" aria-hidden="true"></canvas>
+    <div class="wrap"><div class="hero-text">
+      <nav class="crumbs" aria-label="현재 위치">${crumbs.map(([t, href]) => (href ? `<a href="${esc(encodeURI(href))}">${esc(t)}</a>` : `<span>${esc(t)}</span>`)).join('<i aria-hidden="true">›</i>')}</nav>
+      <h1>${esc(h1)}</h1>
+      <p class="lead">${lead}</p>
+    </div></div>
+  </section>
+  <div class="wrap school-main">
 ${body}
-<p class="school-source">학교 목록은 교육부 나이스(NEIS) 교육정보 개방 포털의 공개 자료를 기준으로 합니다. ${esc(site.name)}은(는) 각 학교와 제휴 관계가 없습니다.</p>
+    <p class="school-source">학교 목록은 교육부 나이스(NEIS) 교육정보 개방 포털의 공개 자료를 기준으로 합니다. ${esc(site.name)}은(는) 각 학교와 제휴 관계가 없습니다. 수업 지역: ${esc(site.area || '')}</p>
+  </div>
 </main>
 <footer class="footer"><div class="wrap"><strong>${esc(site.name)}</strong><span>${esc(site.tagline)}</span><small>© ${new Date().getFullYear()} ${esc(site.name)}. All rights reserved.</small></div></footer>
+<a class="fab" href="${root}#apply" aria-label="무료 학습 30분 신청">무료<br>30분</a>
 <script src="${A}/js/site.js" defer></script>
 </body>
 </html>`;
 }
 
-const regionNav = (regions, prefix, current) => `<nav class="school-regions" aria-label="지역 선택">${regions.map((r) =>
-  `<a href="${prefix}${esc(r.slug)}/"${r.slug === current ? ' aria-current="page"' : ''}>${esc(r.short)}</a>`).join('')}</nav>`;
+const finderHtml = (placeholder, attrs, kinds) => `<div class="school-finder"${attrs}>
+      <label class="finder-search"><span aria-hidden="true">⌕</span><input type="search" placeholder="${esc(placeholder)}" aria-label="학교 이름 검색" autocomplete="off"></label>
+      <div class="kind-chips" role="group" aria-label="학교급 선택">
+        <span class="kind-pill" aria-hidden="true"></span>
+        <button type="button" class="kind-chip on" data-kind="all" aria-pressed="true" data-no-track>전체</button>
+        ${kinds.map(([k, t]) => `<button type="button" class="kind-chip" data-kind="${esc(k)}" aria-pressed="false" data-no-track>${esc(t)}</button>`).join('')}
+      </div>
+    </div>
+    <p class="school-empty" hidden>조건에 맞는 학교가 없습니다. 이름을 줄여서 검색해 보세요.</p>`;
+
+const remoteResults = `<div class="school-results-area" hidden>
+      <p class="school-result-note"></p>
+      <div class="school-grid" data-finder-results></div>
+    </div>`;
 
 export function renderSchoolsIndex(site, regions, total, opts = {}) {
   return schoolPage(site, {
-    title: `전국 초·중·고 학교별 1:1 맞춤 수업 | ${site.name}`,
-    desc: `전국 ${total.toLocaleString('ko-KR')}개 학교 학생을 위한 내신·모의고사 대비 1:1 맞춤 수업. 무료 학습 30분을 먼저 받아 보세요.`,
+    title: `전국 학교별 1:1 과외 · 내신 대비 | ${site.name}`,
+    desc: `전국 ${count(total)}개 학교 학생을 위한 내신·모의고사 대비 1:1 맞춤 수업. 무료 학습 30분을 먼저 받아 보세요.`,
     path: 'schools/', root: '../',
-    body: `<h1>전국 학교별 1:1 맞춤 수업</h1>
-<p class="school-lead">전국 ${total.toLocaleString('ko-KR')}개 학교 학생의 중등·고등 내신과 모의고사를 1:1로 준비합니다. ${site.area ? `수업 지역: ${esc(site.area)}.` : ''}</p>
-<a class="btn btn-primary btn-lg" href="../#apply">무료 학습 30분 신청</a>
-<ul class="school-index">${regions.map((r) => `<li><a href="${esc(r.slug)}/"><b>${esc(r.name)}</b><span>${r.count.toLocaleString('ko-KR')}개 학교</span></a></li>`).join('')}</ul>`
+    crumbs: [['홈', '../'], ['학교별 과외']],
+    h1: '전국 학교별 1:1 과외',
+    lead: `전국 학교 <b>${count(total)}곳</b>을 한눈에 모았습니다. 학교 이름을 검색하거나 지역을 선택하세요.`,
+    body: `    ${finderHtml('학교 이름으로 검색 (예: 대치중학교)', ' data-json="search.json" data-root="../"', SCHOOL_KINDS)}
+    ${remoteResults}
+    <div data-finder-default>
+      <div class="school-section-head"><h2>지역별 학교</h2></div>
+      <div class="school-grid">${regions.map((r) => `<a class="card school-card" href="${esc(r.slug)}/"><b class="school-name">${esc(r.short)} 학교별 과외</b><span>${count(r.count)}곳 · ${r.cities.length}개 지역</span></a>`).join('')}</div>
+    </div>`
   }, opts);
 }
 
-export function renderSchoolRegion(site, region, regions, schools, opts = {}) {
-  const n = schools.length.toLocaleString('ko-KR');
-  const cities = [...groupBy(schools, 3)].sort(([a], [b]) => (a === '기타') - (b === '기타') || a.localeCompare(b, 'ko'));
+export function renderSchoolRegion(site, region, opts = {}) {
   return schoolPage(site, {
-    title: `${region.name} 초·중·고 1:1 맞춤 과외 · 내신 대비 | ${site.name}`,
-    desc: `${region.name} ${n}개 학교 학생을 위한 내신·모의고사 대비 1:1 맞춤 수업. 무료 학습 30분을 먼저 받아 보세요.`,
+    title: `${region.short} 학교별 1:1 과외 · 내신 대비 | ${site.name}`,
+    desc: `${region.name} ${count(region.count)}개 학교 학생을 위한 내신·모의고사 대비 1:1 맞춤 수업. 무료 학습 30분을 먼저 받아 보세요.`,
     path: `schools/${region.slug}/`, root: '../../',
-    body: `<h1>${esc(region.name)} 학교별 1:1 맞춤 수업</h1>
-<p class="school-lead">${esc(region.name)} ${n}개 학교 학생의 중등·고등 내신과 모의고사를 1:1로 준비합니다. ${site.area ? `수업 지역: ${esc(site.area)}.` : ''}</p>
-<a class="btn btn-primary btn-lg" href="../../#apply">무료 학습 30분 신청</a>
-${regionNav(regions, '../', region.slug)}
-${cities.map(([city, list]) => `<section class="school-city">
-<h2>${city === '기타' ? esc(region.name) : `${esc(city)}`} 내신 대비 1:1 과외</h2>
-${[...groupBy(list, 1)].sort(([a], [b]) => kindRank(a) - kindRank(b) || a.localeCompare(b, 'ko')).map(([kind, xs]) => `<h3>${esc(kind)} <small>${xs.length}</small></h3>
-<ul class="school-list">${xs.map((x) => `<li>${esc(x[0])}</li>`).join('')}</ul>`).join('\n')}
-</section>`).join('\n')}`
+    crumbs: [['홈', '../../'], ['학교별 과외', '../'], [region.short]],
+    h1: `${region.short} 학교별 1:1 과외`,
+    lead: `${esc(region.name)} 학교 <b>${count(region.count)}곳</b>을 한눈에 모았습니다. 학교 이름을 검색하거나 지역을 선택하세요.`,
+    body: `    ${finderHtml('학교 이름으로 검색', ` data-json="../search.json" data-root="../../" data-region="${esc(region.slug)}"`, SCHOOL_KINDS)}
+    ${remoteResults}
+    <div data-finder-default>
+      <div class="school-section-head"><h2>${esc(region.short)} 지역별 학교</h2></div>
+      <div class="school-grid">${region.cities.map((c) => `<a class="card school-card" href="${esc(encodeURI(c.path))}/"><b class="school-name">${esc(c.label)} 학교별 과외</b><span>${count(c.schools.length)}곳</span></a>`).join('')}</div>
+    </div>`
+  }, opts);
+}
+
+export function renderSchoolCity(site, region, city, opts = {}) {
+  const root = '../../../';
+  const n = city.schools.length;
+  const groups = SCHOOL_KINDS.map(([k, t]) => [k, t, city.schools.filter((x) => schoolKindKey(x[1]) === k)]).filter(([, , xs]) => xs.length);
+  return schoolPage(site, {
+    title: `${city.label} 학교별 1:1 과외 · 초·중·고 내신 대비 | ${site.name}`,
+    desc: `${region.name} ${city.label} 학교 ${count(n)}곳 학생을 위한 국어·영어·수학 1:1 맞춤 과외. 내신·모의고사 대비, 무료 학습 30분.`,
+    path: `schools/${region.slug}/${city.path}/`, root,
+    crumbs: [['홈', root], ['학교별 과외', '../../'], [region.short, '../'], [city.label]],
+    h1: `${city.label} 학교별 1:1 과외`,
+    lead: `${esc(region.name)} ${esc(city.city === '기타' ? '' : city.city)} 학교 <b>${count(n)}곳</b>을 한눈에 모았습니다. 학교 이름을 검색하거나 아래에서 선택하세요.`,
+    body: `    ${finderHtml('학교 이름으로 검색', '', groups.map(([k, t]) => [k, t]))}
+${groups.map(([k, t, xs]) => `    <section class="school-section" data-section="${esc(k)}">
+      <div class="school-section-head"><h2>${esc(city.label)} ${esc(t)} 과외</h2><span class="count-badge">${count(xs.length)}곳</span></div>
+      <div class="school-grid">${xs.map((x) => {
+        const short = shortSchool(x[0]);
+        return `<a class="card school-card" rel="nofollow" href="${root}?school=${encodeURIComponent(x[0])}" data-name="${esc(x[0])}" data-short="${esc(short)}" data-kind="${esc(k)}"><b class="school-name">${esc(x[0])}</b><span>${esc(city.label)} ${esc(short)} 국어·영어·수학 과외</span></a>`;
+      }).join('')}</div>
+    </section>`).join('\n')}`
   }, opts);
 }
 
