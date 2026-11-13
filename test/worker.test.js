@@ -145,3 +145,93 @@ test('W-07 알림 끄기: 클릭 알림 off 이면 전송 안 함', async () => 
   await flushClicks(env);
   assert.ok(!tgCalls.slice(before).some((c) => c.method === 'sendMessage'));
 });
+
+// ───── 실시간 상담 ─────
+const tgSentIdx = (re) => tgCalls.findLastIndex((c) => c.method === 'sendMessage' && re.test(c.params.text));
+const tgMsgId = (idx) => idx + 1; // 모의 텔레그램은 message_id = 호출 순번
+let chatToken = '';
+
+test('W-08 실시간 상담: 첫 메시지 → 새 상담방·자동 안내·텔레그램 알림(답장 연결)', async () => {
+  const r = await call('/api/chat', { body: { text: '수업료가 궁금해요', page: '/', title: '퍼스트티쳐 | 1:1 과외', vid: 'b'.repeat(32) } });
+  assert.equal(r.status, 200);
+  const j = await r.json();
+  assert.match(j.token, /^[a-f0-9]{32}$/);
+  chatToken = j.token;
+  assert.deepEqual(j.messages.map((m) => m.from), ['user', 'system']);
+  assert.equal(j.messages[0].text, '수업료가 궁금해요');
+  const row = raw.prepare('SELECT * FROM chats').get();
+  assert.notEqual(row.token_hash, chatToken, '토큰은 해시로만 저장');
+  const i = tgSentIdx(/실시간 상담 #1/);
+  assert.ok(i >= 0);
+  const n = tgCalls[i].params;
+  assert.equal(n.chat_id, 777);
+  assert.match(n.text, /새 대화/); assert.match(n.text, /수업료가 궁금해요/); assert.match(n.text, /답장/);
+  assert.ok(n.reply_markup.inline_keyboard[0].some((x) => x.callback_data === 'chat:1:end'));
+  assert.equal(raw.prepare('SELECT chat_id FROM chat_tg WHERE tg_chat = 777 AND tg_msg = ?').get(tgMsgId(i)).chat_id, 1);
+
+  assert.equal((await call('/api/chat', { body: { text: '   ' } })).status, 400);
+  assert.equal((await call('/api/chat', { body: { text: 'x' }, origin: 'https://evil.example' })).status, 403);
+  assert.equal((await call('/api/chat', { body: { text: 'x' }, headers: { 'user-agent': 'Googlebot' } })).status, 403);
+  assert.equal(raw.prepare('SELECT COUNT(*) n FROM chats').get().n, 1);
+});
+
+test('W-09 관리자가 알림에 답장 → 방문자 화면(poll)에 표시, 👍 반응, /r, 이어지는 메시지는 같은 방', async () => {
+  const notif = tgMsgId(tgSentIdx(/실시간 상담 #1/));
+  await tgPost({ message: { message_id: 50, chat: { id: 777 }, text: '안녕하세요! 수업료는 학년별로 안내드려요.', reply_to_message: { message_id: notif } } });
+  assert.ok(tgCalls.some((c) => c.method === 'setMessageReaction' && c.params.message_id === 50));
+  let p = await (await call('/api/chat/poll', { body: { token: chatToken, after: 0 } })).json();
+  assert.equal(p.status, 'open');
+  assert.deepEqual(p.messages.map((m) => m.from), ['user', 'system', 'admin']);
+  assert.equal(p.messages[2].text, '안녕하세요! 수업료는 학년별로 안내드려요.');
+  const last = p.messages[2].id;
+  p = await (await call('/api/chat/poll', { body: { token: chatToken, after: last } })).json();
+  assert.deepEqual(p.messages, []);
+  assert.equal((await (await call('/api/chat/poll', { body: { token: 'c'.repeat(32) } })).json()).status, 'none');
+
+  // 방문자가 이어서 쓰면 같은 방, 자동 안내는 다시 안 붙음
+  const j = await (await call('/api/chat', { body: { token: chatToken, text: '중2 수학이요', after: last } })).json();
+  assert.equal(j.token, chatToken);
+  assert.deepEqual(j.messages.map((m) => m.from), ['user']);
+  assert.match(lastTo(777), /#1<\/b> 방문자\n👤 중2 수학이요/);
+
+  // 번호로 답장, 글자가 아닌 답장은 안내
+  await msg(777, '/r 1 평일 저녁 수업 가능해요');
+  assert.equal(raw.prepare("SELECT text FROM chat_messages WHERE sender = 'admin' ORDER BY id DESC").get().text, '평일 저녁 수업 가능해요');
+  await tgPost({ message: { message_id: 51, chat: { id: 777 }, sticker: {}, reply_to_message: { message_id: notif } } });
+  assert.match(lastTo(777), /글자로만/);
+  // 등록 안 된 사람은 답장해도 전달 안 됨
+  await tgPost({ message: { message_id: 52, chat: { id: 999 }, text: '가짜 답장', reply_to_message: { message_id: notif } } });
+  assert.equal(raw.prepare("SELECT COUNT(*) n FROM chat_messages WHERE text = '가짜 답장'").get().n, 0);
+
+  // 관리자가 둘이면 다른 관리자에게도 답변이 보임
+  await msg(778, '/pair pw-123456789');
+  await tgPost({ message: { message_id: 53, chat: { id: 777 }, text: '편하실 때 연락처 남겨 주세요', reply_to_message: { message_id: notif } } });
+  assert.match(lastTo(778), /다른 관리자의 답변\n편하실 때 연락처 남겨 주세요/);
+});
+
+test('W-10 상담 종료 버튼·다시 문의·대화 전체·/chat 목록·/chat off', async () => {
+  await tgPost({ callback_query: { id: 'c3', data: 'chat:1:end', message: { message_id: 70, chat: { id: 777 } } } });
+  let p = await (await call('/api/chat/poll', { body: { token: chatToken } })).json();
+  assert.equal(p.status, 'closed');
+  assert.match(p.messages.at(-1).text, /상담이 종료되었습니다/);
+
+  // 종료 후 다시 쓰면 같은 방을 다시 열고 알림
+  const j = await (await call('/api/chat', { body: { token: chatToken, text: '하나 더 여쭤봐도 될까요?' } })).json();
+  assert.equal(j.status, 'open');
+  assert.match(lastTo(777), /실시간 상담 #1<\/b> · 다시 문의/);
+  assert.equal(raw.prepare("SELECT status FROM chats WHERE id = 1").get().status, 'open');
+
+  await tgPost({ callback_query: { id: 'c4', data: 'chat:1:log', message: { message_id: 71, chat: { id: 777 } } } });
+  const log = lastTo(777);
+  assert.match(log, /📜 <b>실시간 상담 #1<\/b>/);
+  assert.match(log, /수업료가 궁금해요[\s\S]*하나 더 여쭤봐도/);
+
+  await msg(777, '/chat');
+  assert.match(lastTo(777), /#1<\/b>[\s\S]*답변 대기[\s\S]*하나 더 여쭤봐도/);
+
+  await msg(777, '/chat off');
+  assert.equal((await (await call('/api/site', { method: 'GET' })).json()).chat, false);
+  assert.equal((await call('/api/chat', { body: { token: chatToken, text: '꺼진 상태' } })).status, 400);
+  await msg(777, '/chat on');
+  assert.equal((await (await call('/api/site', { method: 'GET' })).json()).chat, true);
+});

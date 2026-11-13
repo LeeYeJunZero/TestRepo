@@ -18,6 +18,7 @@
 - Worker 수정 후 배포: `cd worker && npx wrangler deploy`
 - 비밀 값: `npx wrangler secret put TELEGRAM_BOT_TOKEN` / `ADMIN_PASSWORD`
 - 클릭 알림은 cron(매 1분)으로 묶어서 전송, `/notice`·`/maint` 는 사이트가 로드 시 `/api/site` 를 읽어 즉시 반영
+- **실시간 상담**: 사이트 오른쪽 아래 '실시간 상담' 버튼 → 방문자 메시지가 텔레그램으로 옴 → 그 알림에 **답장**하면 방문자 채팅 창에 몇 초 안에 표시. 처음 한 번 `cd worker && npx wrangler d1 execute firstteacher --remote --file=migrations/0003_live_chat.sql` 후 `npx wrangler deploy`
 - 로컬 서버(`npm start`/`npm run tunnel`)는 개발·백업용. 텔레그램은 웹훅으로 Worker 가 처리하므로 로컬 봇은 자동 비활성
 
 ## 텔레그램 봇 (어드민 · 알림)
@@ -34,6 +35,8 @@
 | `/visits` · `/clicks` | 최근 접속 · 클릭 기록 |
 | `/inq` · `/inq all` | 미처리 · 전체 상담 (버튼으로 상태 변경/삭제) |
 | `/memo 번호 내용` | 상담 메모 |
+| `/chat` · `/chat on` · `/chat off` | 진행 중 실시간 상담 목록 · 사이트 상담 창 켜기/숨기기 |
+| `/r 번호 내용` | 실시간 상담 답장 (알림 메시지에 **답장**해도 됨) |
 | `/notify` | 상담·클릭·접속 알림 on/off |
 | `/notice 내용` · `/notice off` | 상단 공지 |
 | `/maint on` · `/maint off` | 점검 모드 |

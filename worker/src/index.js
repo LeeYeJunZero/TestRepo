@@ -2,7 +2,9 @@
 //  POST /api/track    페이지 조회
 //  POST /api/event    과목 노출(view) · 클릭(click)
 //  POST /api/inquiry  상담 신청 → 텔레그램 즉시 알림
-//  GET  /api/site     공지 · 운영 상태 (사이트가 로드 시 읽음 → /notice, /maint 즉시 반영)
+//  GET  /api/site     공지 · 운영 상태 · 상담 창 표시 (사이트가 로드 시 읽음 → /notice, /maint, /chat 즉시 반영)
+//  POST /api/chat       실시간 상담: 방문자 메시지 → 텔레그램 (관리자가 알림에 답장하면 방문자에게 전달)
+//  POST /api/chat/poll  실시간 상담: 새 메시지 확인 (방문자 창이 몇 초마다 호출)
 //  POST /tg           텔레그램 웹훅 (X-Telegram-Bot-Api-Secret-Token 검증)
 //  cron 매 1분         미전송 클릭을 묶어서 텔레그램 알림
 // secrets: TELEGRAM_BOT_TOKEN, ADMIN_PASSWORD   vars: ALLOWED_ORIGINS
@@ -100,6 +102,71 @@ const inqText = (r) => [
   `🕒 ${h(r.created_at)}`
 ].filter(Boolean).join('\n');
 
+// ───────── 실시간 상담 (채팅) ─────────
+// 방문자 메시지 → 관리자 텔레그램. 관리자가 그 알림에 '답장'하면 방문자 채팅 창에 표시 (방문자는 몇 초마다 확인)
+const CHAT_MAX = 1000;
+const CHAT_AUTO = '선생님께 바로 전달했어요. 답장은 이 창에 표시돼요.\n답이 늦어지면 연락처(전화번호)를 남겨 주세요. 확인하고 전화로 안내해 드릴게요.';
+const CHAT_END = '상담이 종료되었습니다. 더 궁금한 점이 있으면 언제든 다시 남겨 주세요.';
+const CHAT_WHO = { user: '👤', admin: '🧑‍🏫', system: '🤖' };
+const isToken = (v) => /^[a-f0-9]{32}$/.test(v || '');
+async function sha256hex(s) {
+  const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(String(s)));
+  return [...new Uint8Array(buf)].map((b) => b.toString(16).padStart(2, '0')).join('');
+}
+const chatOn = async (db) => (await getSetting(db, 'chat', true)) !== false;
+const chatMsgs = (db, chatId, after = 0) =>
+  all(db, 'SELECT id, sender, text, created_at FROM chat_messages WHERE chat_id = ? AND id > ? ORDER BY id LIMIT 100', chatId, after);
+const pubMsg = (m) => ({ id: m.id, from: m.sender, text: m.text, at: m.created_at });
+const chatButtons = (id) => ({
+  inline_keyboard: [[{ text: '📜 대화 전체', callback_data: `chat:${id}:log` }, { text: '⏹ 상담 종료', callback_data: `chat:${id}:end` }]]
+});
+const chatPlace = (c) => `📄 ${h(c.title || c.page || '-')}${c.title && c.page ? `\n🔗 ${h(c.page)}` : ''}\n${c.mobile ? '📱 모바일' : '💻 PC'} · 🕒 ${h(md(c.created_at))}`;
+
+// 텔레그램으로 보내고, 그 메시지를 채팅방에 연결 (관리자가 답장하면 방문자에게 전달)
+async function chatSendTo(env, adminChat, chatId, text, extra = {}) {
+  try {
+    const m = await tg(env).call('sendMessage', { chat_id: adminChat, text, parse_mode: 'HTML', disable_web_page_preview: true, ...extra });
+    if (m?.message_id) await run(env.DB, 'INSERT OR IGNORE INTO chat_tg (tg_chat, tg_msg, chat_id) VALUES (?, ?, ?)', adminChat, m.message_id, chatId);
+  } catch (e) { console.error('chat notify', e.message); }
+}
+async function chatBroadcast(env, chatId, text, extra, exceptChat) {
+  if (!env.TELEGRAM_BOT_TOKEN) return;
+  const admins = await getSetting(env.DB, 'tg_admins', []);
+  await Promise.all(admins.filter((a) => a !== exceptChat).map((a) => chatSendTo(env, a, chatId, text, extra)));
+}
+// 관리자 답장 → 방문자 화면
+async function chatReply(env, adminChat, chatId, text, replyMsgId) {
+  const db = env.DB;
+  const { send, call } = tg(env);
+  const body = clip(text, CHAT_MAX);
+  if (!body) return send(adminChat, '보낼 내용이 없습니다.');
+  const c = await first(db, 'SELECT id FROM chats WHERE id = ?', chatId);
+  if (!c) return send(adminChat, `❓ 실시간 상담 #${chatId} 이(가) 없습니다.`);
+  await run(db, "INSERT INTO chat_messages (chat_id, sender, text) VALUES (?, 'admin', ?)", chatId, body);
+  await run(db, "UPDATE chats SET status = 'open', updated_at = datetime('now','+9 hours') WHERE id = ?", chatId);
+  // 전달 확인: 내 답장에 👍 반응 (안 되면 짧은 메시지)
+  const reacted = replyMsgId
+    ? await call('setMessageReaction', { chat_id: adminChat, message_id: replyMsgId, reaction: [{ type: 'emoji', emoji: '👍' }] }).then(() => true, () => false)
+    : false;
+  if (!reacted) await send(adminChat, `✅ 실시간 상담 #${chatId} 방문자에게 전달했습니다.`);
+  await chatBroadcast(env, chatId, `↪️ <b>#${chatId}</b> 다른 관리자의 답변\n${h(body)}`, {}, adminChat);
+}
+async function chatLogText(db, chatId) {
+  const c = await first(db, 'SELECT * FROM chats WHERE id = ?', chatId);
+  if (!c) return null;
+  const rows = await all(db, 'SELECT sender, text, created_at FROM chat_messages WHERE chat_id = ? ORDER BY id DESC LIMIT 30', chatId);
+  const head = `📜 <b>실시간 상담 #${chatId}</b> · ${c.status === 'open' ? '진행 중' : '종료'}\n${chatPlace(c)}\n`;
+  // 텔레그램 4096자 제한: 최근 메시지부터 채움
+  const lines = [];
+  let size = head.length;
+  for (const m of rows) {
+    const line = `${md(m.created_at)} ${CHAT_WHO[m.sender] || ''} ${h(m.text.length > 300 ? m.text.slice(0, 300) + '…' : m.text)}`;
+    if (size + line.length > 3600) { lines.push('…'); break; }
+    lines.push(line); size += line.length + 1;
+  }
+  return `${head}\n${lines.reverse().join('\n')}\n\n↩️ 이 메시지에 답장하면 방문자에게 전달됩니다.`;
+}
+
 // 미전송 클릭 묶음 알림 (cron 매 1분)
 export async function flushClicks(env) {
   const db = env.DB;
@@ -172,11 +239,13 @@ async function rankText(db) {
 
 const COMMANDS = [
   ['stats', '기간 통계 (예: /stats 7)'], ['rank', '누적 과목 순위·클릭률'], ['visits', '최근 접속 기록'],
-  ['clicks', '최근 클릭 기록'], ['inq', '미처리 상담 (/inq all 전체)'], ['notify', '알림 설정'],
+  ['clicks', '최근 클릭 기록'], ['inq', '미처리 상담 (/inq all 전체)'],
+  ['chat', '진행 중 실시간 상담 (/chat on · off 상담 창 표시)'], ['r', '실시간 상담 답장 (/r 번호 내용)'], ['notify', '알림 설정'],
   ['notice', '상단 공지 (/notice 내용 · /notice off)'], ['maint', '점검 모드 (/maint on · off)'],
   ['purge', '30일 이전 접속·클릭 기록 삭제'], ['help', '도움말']
 ];
-const help = () => '<b>퍼스트티쳐 관리 봇</b>\n' + COMMANDS.map(([c, d]) => `/${c} — ${h(d)}`).join('\n') + '\n/memo 번호 내용 — 상담 메모';
+const help = () => '<b>퍼스트티쳐 관리 봇</b>\n' + COMMANDS.map(([c, d]) => `/${c} — ${h(d)}`).join('\n') + '\n/memo 번호 내용 — 상담 메모' +
+  '\n\n💬 실시간 상담 알림에 <b>답장</b>하면 방문자 화면에 바로 표시됩니다.';
 const notifyKeyboard = (n) => {
   const b = (k, label) => ({ text: `${n[k] ? '🔔' : '🔕'} ${label}`, callback_data: `notify:${k}` });
   return { inline_keyboard: [[b('inquiry', '상담'), b('click', '클릭'), b('visit', '접속')]] };
@@ -197,7 +266,15 @@ async function handleMessage(env, msg) {
     if (!admins.includes(chatId)) await setSetting(db, 'tg_admins', [...admins, chatId]);
     return send(chatId, '✅ 관리자로 등록되었습니다. 이제 상담·클릭 알림을 받습니다.\n\n' + help());
   }
-  if (!admins.includes(chatId)) return send(chatId, '🔒 등록되지 않은 채팅입니다.\n<code>/pair 어드민비밀번호</code> 로 연결하세요.');
+  if (!admins.includes(chatId)) return text ? send(chatId, '🔒 등록되지 않은 채팅입니다.\n<code>/pair 어드민비밀번호</code> 로 연결하세요.') : undefined;
+
+  // 실시간 상담 알림에 '답장' → 방문자에게 전달
+  const replyTo = msg.reply_to_message?.message_id;
+  if (replyTo && !text.startsWith('/')) {
+    const link = await first(db, 'SELECT chat_id FROM chat_tg WHERE tg_chat = ? AND tg_msg = ?', chatId, replyTo);
+    if (link) return text ? chatReply(env, chatId, link.chat_id, text, msg.message_id) : send(chatId, '✏️ 실시간 상담에는 글자로만 답장할 수 있어요.');
+  }
+  if (!text) return;
 
   switch (cmd) {
     case 'start': case 'help': return send(chatId, help());
@@ -220,6 +297,30 @@ async function handleMessage(env, msg) {
       if (!rows.length) return send(chatId, rest[0] === 'all' ? '📭 상담 신청이 없습니다.' : '📭 미처리 상담이 없습니다.');
       for (const r of rows.reverse()) await send(chatId, inqText(r), { reply_markup: inqButtons(r.id) });
       return;
+    }
+    case 'chat': {
+      if (['on', 'off'].includes(rest[0])) {
+        await setSetting(db, 'chat', rest[0] === 'on');
+        return send(chatId, rest[0] === 'on' ? '💬 실시간 상담 창을 켰습니다. (사이트에 즉시 반영)' : '💬 실시간 상담 창을 숨겼습니다. (사이트에 즉시 반영)');
+      }
+      const rows = await all(db, `SELECT c.*,
+        (SELECT text FROM chat_messages m WHERE m.chat_id = c.id AND m.sender <> 'system' ORDER BY m.id DESC LIMIT 1) last_text,
+        (SELECT sender FROM chat_messages m WHERE m.chat_id = c.id AND m.sender <> 'system' ORDER BY m.id DESC LIMIT 1) last_from
+        FROM chats c WHERE c.status = 'open' ORDER BY c.updated_at DESC LIMIT 5`);
+      const state = `상담 창: ${(await chatOn(db)) ? '켜짐' : '꺼짐'} (/chat on · /chat off)`;
+      if (!rows.length) return send(chatId, `💬 진행 중인 실시간 상담이 없습니다.\n${state}`);
+      await send(chatId, `💬 <b>진행 중 실시간 상담 ${rows.length}건</b> (최근 순)\n${state}\n각 메시지에 답장하면 그 방문자에게 전달됩니다.`);
+      for (const r of rows.reverse()) {
+        const last = String(r.last_text || '');
+        await chatSendTo(env, chatId, r.id, `💬 <b>#${r.id}</b> · ${h(md(r.updated_at))} · ${r.last_from === 'user' ? '⏳ 답변 대기' : '답변함'}\n${chatPlace(r)}\n\n${CHAT_WHO[r.last_from] || ''} ${h(last.length > 300 ? last.slice(0, 300) + '…' : last)}`, { reply_markup: chatButtons(r.id) });
+      }
+      return;
+    }
+    case 'r': {
+      const id = parseInt(rest[0]);
+      const body = arg.replace(/^\d+\s*/, '');
+      if (!id || !body) return send(chatId, '사용법: /r 번호 내용  (또는 실시간 상담 알림에 답장)');
+      return chatReply(env, chatId, id, body, msg.message_id);
     }
     case 'memo': {
       const id = parseInt(rest[0]);
@@ -264,6 +365,26 @@ async function handleCallback(env, cb) {
     await ack(`${a} 알림 ${n[a] ? 'ON' : 'OFF'}`);
     return call('editMessageReplyMarkup', { chat_id: chatId, message_id: cb.message.message_id, reply_markup: notifyKeyboard(n) }).catch(() => {});
   }
+  if (kind === 'chat') {
+    const id = parseInt(a);
+    if (b === 'log') {
+      const text = await chatLogText(db, id);
+      if (!text) return ack('없는 상담');
+      await ack();
+      return chatSendTo(env, chatId, id, text, { reply_markup: chatButtons(id) });
+    }
+    if (b === 'end') {
+      const c = await first(db, 'SELECT status FROM chats WHERE id = ?', id);
+      if (!c) return ack('없는 상담');
+      if (c.status !== 'closed') {
+        await run(db, "UPDATE chats SET status = 'closed', updated_at = datetime('now','+9 hours') WHERE id = ?", id);
+        await run(db, "INSERT INTO chat_messages (chat_id, sender, text) VALUES (?, 'system', ?)", id, CHAT_END);
+      }
+      await ack('상담을 종료했습니다');
+      return call('editMessageReplyMarkup', { chat_id: chatId, message_id: cb.message.message_id, reply_markup: { inline_keyboard: [[{ text: '⏹ 종료됨 · 📜 대화 전체', callback_data: `chat:${id}:log` }]] } }).catch(() => {});
+    }
+    return ack();
+  }
   if (kind === 'inq') {
     const id = parseInt(a);
     if (b === 'delete') {
@@ -307,7 +428,7 @@ export default {
       if (req.headers.get('x-telegram-bot-api-secret-token') !== secret) return new Response('forbidden', { status: 403 });
       const u = await req.json().catch(() => ({}));
       try {
-        if (u.message?.text) await handleMessage(env, u.message);
+        if (u.message?.chat) await handleMessage(env, u.message);
         else if (u.callback_query) await handleCallback(env, u.callback_query);
       } catch (e) { console.error('tg handler', e); }
       return new Response('ok');
@@ -316,14 +437,15 @@ export default {
     if (!url.pathname.startsWith('/api/')) return new Response('FirstTeacher API', { headers: { 'Content-Type': 'text/plain; charset=utf-8' } });
 
     const cors = corsHeaders(req, env);
-    if (req.method === 'POST' && cors) ctx.waitUntil(flushIfStale(env).catch((e) => console.error('flush', e)));
+    // 몇 초마다 오는 채팅 확인(poll)은 제외: D1 읽기 절약
+    if (req.method === 'POST' && cors && url.pathname !== '/api/chat/poll') ctx.waitUntil(flushIfStale(env).catch((e) => console.error('flush', e)));
     if (req.method === 'OPTIONS') return new Response(null, { status: cors ? 204 : 403, headers: cors || {} });
     if (!cors) return json({ error: 'origin not allowed' }, 403);
     const reply = (data, status) => json(data, status, cors);
 
     if (url.pathname === '/api/site' && req.method === 'GET') {
       const notice = await getSetting(db, 'notice', null);
-      return json({ notice, status: await getSetting(db, 'status', 'live') }, 200, { ...cors, 'Cache-Control': 'no-store' });
+      return json({ notice, status: await getSetting(db, 'status', 'live'), chat: await chatOn(db) }, 200, { ...cors, 'Cache-Control': 'no-store' });
     }
     if (req.method !== 'POST') return reply({ error: 'not found' }, 404);
     const b = await req.json().catch(() => ({}));
@@ -373,6 +495,41 @@ export default {
         if (row) await broadcast(env, inqText(row), { reply_markup: inqButtons(id) });
       })());
       return reply({ ok: true });
+    }
+
+    // 실시간 상담: 방문자 메시지 보내기. token 이 없으면 새 상담방을 만들고 token 을 돌려줌
+    if (url.pathname === '/api/chat') {
+      if (limited('chat', ip, 20, 60_000)) return reply({ error: '메시지를 너무 빨리 보내고 있어요. 잠시 후 다시 보내 주세요.' }, 429);
+      if (isBot) return reply({ error: '지금은 보낼 수 없어요. 전화나 무료 학습 30분 신청으로 문의해 주세요.' }, 403);
+      if ((await getSetting(db, 'status', 'live')) !== 'live') return reply({ error: '사이트 점검 중이라 지금은 상담을 받을 수 없어요.' }, 400);
+      if (!(await chatOn(db))) return reply({ error: '지금은 실시간 상담을 쉬고 있어요. 무료 학습 30분 신청이나 전화로 문의해 주세요.' }, 400);
+      const text = clip(b.text, CHAT_MAX);
+      if (!text) return reply({ error: '내용을 입력해 주세요.' }, 400);
+      let token = isToken(b.token) ? b.token : '';
+      let chat = token ? await first(db, 'SELECT * FROM chats WHERE token_hash = ?', await sha256hex(token)) : null;
+      const isNew = !chat, reopened = chat?.status === 'closed';
+      if (isNew) {
+        if (limited('chatnew', ip, 5, 3600_000)) return reply({ error: '새 상담을 너무 많이 열었어요. 잠시 후 다시 시도해 주세요.' }, 429);
+        token = crypto.randomUUID().replace(/-/g, '');
+        const r = await run(db, 'INSERT INTO chats (token_hash, visitor, page, title, ip, mobile) VALUES (?, ?, ?, ?, ?, ?)',
+          await sha256hex(token), isVid(b.vid) ? b.vid : '', clip(b.page, 300), clip(b.title, 120), ip, MOBILE_RE.test(ua) ? 1 : 0);
+        chat = await first(db, 'SELECT * FROM chats WHERE id = ?', r.meta?.last_row_id);
+      }
+      await run(db, "INSERT INTO chat_messages (chat_id, sender, text) VALUES (?, 'user', ?)", chat.id, text);
+      await run(db, "UPDATE chats SET status = 'open', updated_at = datetime('now','+9 hours') WHERE id = ?", chat.id);
+      if (isNew || reopened) await run(db, "INSERT INTO chat_messages (chat_id, sender, text) VALUES (?, 'system', ?)", chat.id, CHAT_AUTO);
+      ctx.waitUntil(chatBroadcast(env, chat.id, isNew || reopened
+        ? `💬 <b>실시간 상담 #${chat.id}</b> · ${isNew ? '새 대화' : '다시 문의'}\n${chatPlace(chat)}\n\n👤 ${h(text)}\n\n↩️ 이 메시지에 <b>답장</b>하면 방문자 화면에 바로 표시됩니다.`
+        : `💬 <b>#${chat.id}</b> 방문자\n👤 ${h(text)}`, { reply_markup: chatButtons(chat.id) }));
+      return reply({ ok: true, token, status: 'open', messages: (await chatMsgs(db, chat.id, parseInt(b.after) || 0)).map(pubMsg) });
+    }
+
+    // 실시간 상담: 새 메시지 확인 (방문자 창이 몇 초마다 호출)
+    if (url.pathname === '/api/chat/poll') {
+      if (limited('chatpoll', ip, 90, 60_000)) return reply({ error: 'too many' }, 429);
+      const chat = isToken(b.token) ? await first(db, 'SELECT id, status FROM chats WHERE token_hash = ?', await sha256hex(b.token)) : null;
+      if (!chat) return reply({ status: 'none', messages: [] });
+      return reply({ status: chat.status, messages: (await chatMsgs(db, chat.id, parseInt(b.after) || 0)).map(pubMsg) });
     }
 
     return reply({ error: 'not found' }, 404);
