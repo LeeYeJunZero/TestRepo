@@ -514,7 +514,10 @@
         <button type="submit" class="chat-send" aria-label="보내기" disabled>${SEND}</button></form>
       <p class="chat-note">상담 내용은 답변을 위해 저장돼요. 연락처는 원하실 때만 남겨 주세요.</p>`;
     panel.querySelector('.chat-avatar').textContent = document.querySelector('.brand-mark')?.textContent.trim() || 'F';
-    body.append(launcher, panel);
+    // 오른쪽 아래 버튼 묶음(카톡·전화) 맨 위에 넣음. 묶음이 없는 페이지는 따로 띄움
+    const dock = document.getElementById('floatCta');
+    if (dock) dock.prepend(launcher); else body.append(launcher);
+    body.append(panel);
 
     const log = panel.querySelector('.chat-log');
     const quick = panel.querySelector('.chat-quick');

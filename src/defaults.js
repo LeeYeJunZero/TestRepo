@@ -17,7 +17,7 @@ export const DEFAULT_SITE = {
     heroSub: '중등·고등 내신부터 모의고사까지, 수학·영어·코딩을 1:1로 가르칩니다. 무료 학습 30분으로 아이가 어디서 막혀 있는지 먼저 확인해 보세요.',
     notice: '무료 학습 30분 신청 접수 중',
     color: '#6750a4',
-    phone: '010-0000-0000',
+    phone: '010-2224-2123',
     kakao: '',
     email: 'contact@firstteacher.co.kr',
     area: '서울·수도권 방문 / 전국 온라인 화상',

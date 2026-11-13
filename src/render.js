@@ -91,6 +91,20 @@ const LEAD_GRADES = ['초1', '초2', '초3', '초4', '초5', '초6', '중1', '�
 const LEAD_MODES = ['방문수업', '화상수업'];
 const MARQUEE = ['1:1 맞춤 수업', '무료 학습 30분', '중등 내신', '고등 내신', '모의고사', '학교별 기출 분석', '오답 관리', '월간 리포트'];
 
+// 오른쪽 아래 상담 버튼 묶음: (실시간 상담 — site.js 가 Worker 확인 후 맨 위에 넣음) / 카톡 상담 · 전화
+const ICON_KAKAO = '<svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M12 3.5c-5 0-9 3.2-9 7.1 0 2.5 1.6 4.7 4.1 5.9l-.9 3.4c-.1.3.3.6.6.4l4-2.6 1.2.1c5 0 9-3.2 9-7.2S17 3.5 12 3.5z"/></svg>';
+const ICON_TEL = '<svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M6.6 10.8a15.1 15.1 0 0 0 6.6 6.6l2.2-2.2c.3-.3.7-.4 1-.2 1.1.4 2.3.6 3.6.6.6 0 1 .4 1 1V20c0 .6-.4 1-1 1A17 17 0 0 1 3 4c0-.6.4-1 1-1h3.5c.6 0 1 .4 1 1 0 1.3.2 2.5.6 3.6.1.3 0 .7-.2 1z"/></svg>';
+function floatCta(site) {
+  const kakao = site.kakao && /^https?:///.test(site.kakao) ? site.kakao : '';
+  const phone = site.phone && !/^010-0000-0000$/.test(site.phone) ? site.phone : '';
+  return `<div class="float-cta" id="floatCta">
+  <div class="float-row">
+    ${kakao ? `<a class="fc-btn fc-kakao" href="${esc(kakao)}" target="_blank" rel="noopener" aria-label="카톡 상담">${ICON_KAKAO}<span>카톡 상담</span></a>` : ''}
+    ${phone ? `<a class="fc-btn fc-tel" href="tel:${tel(phone)}" aria-label="전화 상담 ${esc(phone)}">${ICON_TEL}<span>${esc(phone)}</span></a>` : ''}
+  </div>
+</div>`;
+}
+
 const leadOptions = (name, values) => values.map((v) => `<label class="opt"><input type="radio" name="${name}" value="${esc(v)}"><span>${esc(v)}</span></label>`).join('');
 
 // 첫 방문 팝업: 1단계 과목 선택 → 2단계 인적사항 → 완료
@@ -382,7 +396,7 @@ ${site.notice ? `<div class="notice" role="status"><div class="wrap">${esc(site.
   </div>
 </footer>
 
-<a class="fab" href="#apply" aria-label="무료 학습 30분 신청" data-lead-open>무료<br>30분</a>
+${floatCta(site)}
 <div class="toast" role="status" aria-live="polite"></div>
 ${leadDialog(leadTiles)}
 <script src="${A}/js/site.js${opts.assetV ? `?v=${opts.assetV}` : ''}" defer></script>
@@ -509,7 +523,7 @@ ${body}
   </div>
 </main>
 <footer class="footer"><div class="wrap"><strong>${esc(site.name)}</strong><span>${esc(site.tagline)}</span><small>© ${new Date().getFullYear()} ${esc(site.name)}. All rights reserved.</small></div></footer>
-<a class="fab" href="${root}#apply" aria-label="무료 학습 30분 신청">무료<br>30분</a>
+${floatCta(site)}
 <script src="${A}/js/site.js${opts.assetV ? `?v=${opts.assetV}` : ''}" defer></script>
 </body>
 </html>`;

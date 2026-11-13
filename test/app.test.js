@@ -317,7 +317,7 @@ test('R-15 검색엔진: robots·sitemap·canonical·OG·구조화 데이터·�
   const org = blocks.find((b) => b['@type'] === 'EducationalOrganization');
   assert.equal(org.name, '퍼스트티쳐');
   assert.ok(org.hasOfferCatalog.itemListElement.length >= 9);
-  assert.ok(!('telephone' in org), '예시 전화번호는 구조화 데이터에서 제외');
+  assert.equal(org.telephone, '010-2224-2123');
   assert.ok(blocks.some((b) => b['@type'] === 'FAQPage'));
   assert.equal((await get('/assets/og.png')).status, 200);
   // 소유확인 메타 + JSON-LD 의 </script> 탈출 방지

@@ -503,3 +503,24 @@ main { overflow-x: clip; }
   .chat-panel { left: 8px; right: 8px; bottom: 8px; width: auto; height: min(640px, calc(100vh - 16px)); height: min(640px, calc(100dvh - 16px)); border-radius: 18px; }
 }
 @media (prefers-reduced-motion: reduce) { .chat-panel { animation: none; } .chat-launcher { transition: none; } }
+
+/* ─── 오른쪽 아래 상담 버튼 묶음: 실시간 상담 / 카톡 상담 · 전화 ─── */
+.float-cta { position: fixed; right: 20px; bottom: 20px; z-index: 61; display: flex; flex-direction: column; align-items: flex-end; gap: 12px; pointer-events: none; }
+.float-cta > * { pointer-events: auto; }
+.float-row { display: flex; gap: 10px; }
+.fc-btn { display: inline-flex; align-items: center; gap: 8px; height: 50px; padding: 0 22px 0 18px; font-size: 16px; font-weight: 800; letter-spacing: -.01em; white-space: nowrap; text-decoration: none; border-radius: 100px; box-shadow: var(--elev-3); transition: transform .2s, box-shadow .2s; }
+.fc-btn svg { width: 20px; height: 20px; flex: none; }
+.fc-btn:hover { transform: translateY(-2px); box-shadow: 0 6px 10px 4px rgba(0,0,0,.15), 0 2px 3px rgba(0,0,0,.3); }
+.fc-kakao { color: #191919; background: #fee500; }
+.fc-kakao svg { color: #3a1d1d; }
+.fc-tel { color: var(--on-primary); background: var(--primary); }
+.float-cta .chat-launcher { position: relative; right: auto; bottom: auto; height: 50px; padding: 0 22px 0 18px; font-size: 16px; }
+.float-cta .chat-launcher svg { width: 20px; height: 20px; }
+.footer { padding-bottom: 140px; }
+@media (max-width: 560px) {
+  .float-cta { right: 16px; bottom: 16px; gap: 10px; }
+  .float-row { gap: 8px; }
+  .fc-btn, .float-cta .chat-launcher { height: 46px; padding: 0 16px 0 13px; font-size: 15px; }
+  .fc-btn svg, .float-cta .chat-launcher svg { width: 18px; height: 18px; }
+}
+@media (prefers-reduced-motion: reduce) { .fc-btn { transition: none; } }
