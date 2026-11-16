@@ -1,0 +1,18 @@
+{
+  "manifest_version": 3,
+  "name": "블로그 포스팅 스튜디오",
+  "version": "1.0.0",
+  "description": "API 모델 선택, 페르소나 글 작성, 초 단위 예약, 네이버 임시저장·발행과 작업 기록",
+  "minimum_chrome_version": "120",
+  "permissions": ["storage", "unlimitedStorage", "alarms", "tabs", "scripting", "clipboardWrite"],
+  "host_permissions": [
+    "https://api.openai.com/*",
+    "https://api.anthropic.com/*",
+    "https://generativelanguage.googleapis.com/*",
+    "https://blog.naver.com/*"
+  ],
+  "background": {"service_worker": "background.js", "type": "module"},
+  "action": {"default_title": "블로그 포스팅 스튜디오 열기"},
+  "commands": {"_execute_action": {"suggested_key": {"default": "Alt+Shift+B"}, "description": "포스팅 스튜디오 열기"}},
+  "content_security_policy": {"extension_pages": "script-src 'self'; object-src 'none'; base-uri 'none'"}
+}
