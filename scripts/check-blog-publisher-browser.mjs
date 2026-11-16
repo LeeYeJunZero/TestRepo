@@ -1,5 +1,5 @@
 import {spawn} from 'node:child_process';
-import {mkdtemp,readFile,writeFile,mkdir,rm,realpath} from 'node:fs/promises';
+import {mkdtemp,readFile,writeFile,mkdir,rm,realpath,readdir,copyFile} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import path from 'node:path';
 import assert from 'node:assert/strict';
@@ -7,9 +7,14 @@ import {naverEditor} from '../extensions/blog-publisher/naver.js';
 import {buildLayout} from '../extensions/blog-publisher/layout.js';
 
 // Fresh test profile only. No user cookies, API keys, or live Naver posting.
-const root=process.cwd(),extension=path.join(root,'extensions/blog-publisher');
-const clientVersion=JSON.parse(await readFile(path.join(extension,'manifest.json'),'utf8')).version;
+const root=process.cwd(),sourceExtension=path.join(root,'extensions/blog-publisher');
+const clientVersion=JSON.parse(await readFile(path.join(sourceExtension,'manifest.json'),'utf8')).version;
 const profile=await mkdtemp(path.join(tmpdir(),'posting-studio-test-'));
+const extension=path.join(profile,'extension');await mkdir(extension);
+for(const file of await readdir(sourceExtension))await copyFile(path.join(sourceExtension,file),path.join(extension,file));
+const pageHtml=await readFile(path.join(extension,'dashboard.html'),'utf8');
+await writeFile(path.join(extension,'legacy-dashboard.html'),pageHtml.replace(/<meta name="studio-ui-version"[^>]+>/,'').replace(/id="reviewStatus"/,'id="oldReviewStatus"').replace(/id="reviewBefore"/,'id="oldReviewBefore"').replace('placeholder="AI 생성 후 직접 수정하거나 완성한 원고를 붙여넣으세요."></textarea>','placeholder="AI 생성 후 직접 수정하거나 완성한 원고를 붙여넣으세요.">미저장 복구 원고</textarea>'));
+await writeFile(path.join(extension,'missing-notice.html'),pageHtml.replace('id="notice"','id="oldNotice"').replace('id="reviewBefore"','id="oldReviewBefore"'));
 const executable=process.env.BLOG_TEST_BROWSER || 'C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe';
 const child=spawn(executable,['--headless=new','--no-first-run','--no-default-browser-check',`--user-data-dir=${profile}`,
   '--remote-debugging-port=0',`--disable-extensions-except=${extension}`,`--load-extension=${extension}`,'about:blank'],{windowsHide:true,stdio:'ignore'});
@@ -357,6 +362,25 @@ try {
   await check('전송 직전 취소 차단',async()=>{
     await reset();await act({op:'cancel',jobId:'stop'});await assert.rejects(()=>act({op:'publish',jobId:'stop'}),/중단 요청/);
   });dom.close();
+  for(const [file,needle] of [['legacy-dashboard.html','reviewStatus'],['missing-notice.html','notice']]) {
+    await check(`화면 파일 불일치 복구 안내·미저장 원고 보존: ${file}`,async()=>{
+      const target=await browser.call('Target.createTarget',{url:`chrome-extension://${extId}/${file}`});
+      const info=await waitUntil(async()=> (await targets()).find(t=>t.id===target.targetId));const page=await CDP.connect(info.webSocketDebuggerUrl);await page.call('Runtime.enable');
+      await waitUntil(()=>page.eval('!!document.getElementById("studio-recovery")'));
+      assert.ok(await page.eval(`document.getElementById('studio-recovery').textContent.includes(${JSON.stringify(needle)})`));
+      const rescue=await page.eval(`JSON.parse(document.getElementById('studio-rescue').value)`);
+      assert.equal(rescue.format,'blog-posting-studio');assert.ok(!Object.hasOwn(rescue.composer,'apiKey'));
+      if(file==='legacy-dashboard.html')assert.equal(rescue.composer.body,'미저장 복구 원고');
+      assert.equal(await page.eval(`document.getElementById('saveKey').disabled`),true);
+      await sleep(300);page.close();await browser.call('Target.closeTarget',{targetId:target.targetId});
+    });
+  }
+  await check('실행 중 hidden/textContent 대상이 사라져도 Promise 예외 없이 중단',async()=>{
+    await ui.eval(`document.getElementById('reviewBefore').remove();document.getElementById('body').dispatchEvent(new Event('input'))`);
+    await waitUntil(()=>ui.eval('!!document.getElementById("studio-recovery")'));
+    assert.equal(await ui.eval(`document.getElementById('runNow').disabled`),true);
+    await sleep(300);assert.deepEqual(errors,[]);
+  });
   console.log(`브라우저 통합 테스트 ${passed}개 통과. 실제 API 호출·네이버 실발행 없음.`);
 } finally {
   ui?.close();sw?.close();

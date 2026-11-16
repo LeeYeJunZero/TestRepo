@@ -1,6 +1,6 @@
 import {redact} from './core.js';
 
-export const CLIENT_VERSION='1.3.1';
+export const CLIENT_VERSION='1.3.2';
 export class StudioError extends Error {
   constructor(message,code,review){super(message);this.code=code;this.review=review;}
 }

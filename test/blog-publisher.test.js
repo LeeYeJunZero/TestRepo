@@ -8,6 +8,7 @@ import {buildLayout, insertMarkerAt} from '../extensions/blog-publisher/layout.j
 import {parseReviewReply, reviewSignature, isReviewCurrent, buildReviewPrompt} from '../extensions/blog-publisher/review.js';
 import {CLIENT_VERSION, requestMessage} from '../extensions/blog-publisher/client.js';
 import {readFile} from 'node:fs/promises';
+import {DASHBOARD_IDS, checkDashboard, requiredElement} from '../extensions/blog-publisher/ui-guard.js';
 
 const c = normalizeComposer({provider:'openai',model:'text-model',keywords:'대원외고 영어',topic:'구문 분석',persona:'친절한 학습 코치',title:'제목',body:'본문',tags:['영어']});
 const response = data => new Response(JSON.stringify(data),{status:200,headers:{'Content-Type':'application/json'}});
@@ -226,4 +227,15 @@ test('BP-31 구버전 워커에는 키 저장·게시 요청을 보내기 전에
   const calls=[];
   await assert.rejects(()=>requestMessage('enqueue',{content:c},{id:'test',sendMessage:async m=>{calls.push(m.cmd);return {ok:true,data:true};}}),e=>e.code==='VERSION_MISMATCH');
   assert.deepEqual(calls,['hello']);
+});
+test('BP-32 모든 화면 참조 요소와 HTML 버전이 배포 파일에 존재',async()=>{
+  const html=await readFile(new URL('../extensions/blog-publisher/dashboard.html',import.meta.url),'utf8');
+  const ids=[...html.matchAll(/\bid="([^"]+)"/g)].map(m=>m[1]);
+  assert.equal(new Set(ids).size,ids.length);
+  for(const id of DASHBOARD_IDS)assert.ok(ids.includes(id),`누락: ${id}`);
+  const doc={getElementById:id=>ids.includes(id) ? {id}:null,querySelector:()=>({content:CLIENT_VERSION})};
+  assert.equal(checkDashboard(doc,CLIENT_VERSION).ok,true);
+  assert.equal(checkDashboard({...doc,querySelector:()=>null},CLIENT_VERSION).ok,false);
+  assert.equal(checkDashboard({...doc,getElementById:id=>id==='reviewStatus' ? null:{id}},CLIENT_VERSION).ok,false);
+  assert.throws(()=>requiredElement('reviewBefore',{getElementById:()=>null}),e=>e.code==='UI_LAYOUT_MISMATCH');
 });

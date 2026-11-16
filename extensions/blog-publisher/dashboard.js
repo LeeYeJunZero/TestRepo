@@ -2,8 +2,12 @@ import {ACTIONS, STATES, RUNNING, PROVIDERS, normalizeComposer, durationMs, dueT
 import {normalizeImages, normalizeMarker, storeImage, getImage, exportImages, importImages, referencedImages} from './images.js';
 import {buildLayout, insertMarkerAt, markerToken} from './layout.js';
 import {isReviewCurrent} from './review.js';
-import {requestMessage} from './client.js';
-const $ = id => document.getElementById(id);
+import {CLIENT_VERSION, requestMessage} from './client.js';
+import {checkDashboard, requiredElement, DashboardLayoutError, showRecovery} from './ui-guard.js';
+
+function startDashboard() {
+const $ = id => requiredElement(id);
+let halted=false;const intervals=[];
 let state = {jobs:[],drafts:[],logs:[],keyStatus:{}}, changed = false, lastAuto = Date.now(), fetching = false;
 let generating = false, generationEpoch = 0, timerNotice;
 let attachments=[],imagesBusy=false,folderFiles=[],folderSelection=new Set(),imageEpoch=0;
@@ -11,13 +15,22 @@ let reviewInfo=null,reviewEpoch=0;
 const imageURLs=new Map();
 const fields = ['provider','model','keywords','topic','persona','audience','tone','length','references','instructions','title','body','tags','blogId','action'];
 function notify(msg,error=false) {
-  $('notice').hidden = false;$('notice').textContent = msg;$('notice').classList.toggle('error',error);
-  clearTimeout(timerNotice);timerNotice = setTimeout(() => {$('notice').hidden = true;},error ? 15000:7000);
+  if(halted)return;
+  const notice=document.getElementById('notice');
+  if(!notice){handleError(new DashboardLayoutError(['notice']));return;}
+  notice.hidden=false;notice.textContent=msg;notice.classList.toggle('error',error);
+  clearTimeout(timerNotice);timerNotice = setTimeout(() => {if(notice.isConnected)notice.hidden=true;},error ? 15000:7000);
 }
+function handleError(error) {
+  if(error instanceof DashboardLayoutError){halted=true;intervals.forEach(clearInterval);clearTimeout(timerNotice);showRecovery(error.message,document,{images:attachments});return;}
+  notify(error.message || String(error),true);
+}
+function launch(fn){if(!halted)void Promise.resolve().then(()=>{if(!halted)return fn();}).catch(handleError);}
 async function send(cmd, values={}) {
+  if(halted)throw new Error('화면 복구가 필요해 새 요청을 보내지 않았습니다.');
   return requestMessage(cmd,values);
 }
-function bind(id, fn) {$(id).addEventListener('click',() => Promise.resolve().then(fn).catch(e => notify(e.message,true)));}
+function bind(id, fn) {$(id).addEventListener('click',() => launch(fn));}
 function content() {
   if (imagesBusy) throw new Error('이미지를 보관 중입니다. 첨부 완료 후 실행하세요.');
   return normalizeComposer({...Object.fromEntries(fields.map(id => [id,$(id).value])),images:attachments,review:reviewInfo});
@@ -25,14 +38,14 @@ function content() {
 function load(c) {
   generationEpoch++;
   for (const id of fields) if (c[id] !== undefined) $(id).value = id === 'tags' ? c.tags.join(', ') : c[id];
-  attachments=normalizeImages(c.images || []);void renderAttachments();
+  attachments=normalizeImages(c.images || []);launch(renderAttachments);
   reviewInfo=c.review || null;
   changed = true;updateCount();updateKeyStatus();
 }
-function updateCount() {$('charCount').textContent = `${$('body').value.length.toLocaleString()}자`;void renderReview();}
+function updateCount() {$('charCount').textContent = `${$('body').value.length.toLocaleString()}자`;launch(renderReview);}
 async function renderReview() {
   const epoch=++reviewEpoch;
-  let current=false;try{current=!!reviewInfo && await isReviewCurrent(content());}catch{}
+  let current=false;try{current=!!reviewInfo && await isReviewCurrent(content());}catch(e){if(e instanceof DashboardLayoutError)throw e;}
   if(epoch!==reviewEpoch)return;
   $('reviewStatus').textContent=!reviewInfo ? '검수 전':reviewInfo.status==='blocked' ? '검수 미통과':!current ? '수정 후 재검수 필요':reviewInfo.changed ? '교정 후 통과':'검수 통과';
   $('reviewSummary').textContent=reviewInfo ? `기준 제목: ${reviewInfo.title} · ${reviewInfo.summary}${!current && reviewInfo.status==='approved' ? ' · 이전 검수 결과이며 현재 수정본은 재검수가 필요합니다.':''}`:'AI 생성 후 자동 검수합니다. 직접 쓴 글도 이 버튼으로 검수하거나 네이버 작업 직전에 검수할 수 있습니다.';
@@ -45,13 +58,13 @@ function panel(id) {
 }
 function node(tag, txt='', cls='') {const el = document.createElement(tag);el.textContent = txt;if (cls) el.className=cls;return el;}
 function btn(label, fn) {
-  const b = node('button',label);b.addEventListener('click',() => Promise.resolve().then(fn).catch(e => notify(e.message,true)));return b;
+  const b = node('button',label);b.addEventListener('click',() => launch(fn));return b;
 }
 function date(t) {return new Date(t).toLocaleString('ko-KR',{hour12:false});}
 function updateKeyStatus() {
   const p = $('provider').value;
   $('keyStatus').textContent = `${PROVIDERS[p].name} · ${state.keyStatus[p] ? '키 설정됨':'키 필요'}`;
-  void renderReview();
+  launch(renderReview);
 }
 function renderJobs() {
   const root = $('jobs');root.replaceChildren();
@@ -143,7 +156,7 @@ async function imageUrl(ref,epoch=imageEpoch) {
   imageURLs.set(ref.id,url);return url;
 }
 async function renderAttachments() {
-  void renderReview();
+  launch(renderReview);
   const epoch=++imageEpoch;
   for (const url of imageURLs.values()) URL.revokeObjectURL(url);imageURLs.clear();
   $('previewImages').replaceChildren();$('imageList').replaceChildren();$('imageCount').textContent=`${attachments.length} / 10장`;
@@ -170,12 +183,12 @@ async function renderAttachments() {
       const inserted=insertMarkerAt($('body').value,marker,$('body').selectionStart);
       attachments=normalizeImages(attachments.map(r=>r.id===ref.id ? {...r,marker}:r));
       $('body').value=inserted.body;$('body').focus();$('body').setSelectionRange(inserted.cursor,inserted.cursor);
-      changed=true;generationEpoch++;updateCount();void renderAttachments();notify(`${ref.name} → ${markerToken(marker)} 위치로 지정했습니다.`);
+      changed=true;generationEpoch++;updateCount();launch(renderAttachments);notify(`${ref.name} → ${markerToken(marker)} 위치로 지정했습니다.`);
     });const positionInfo=node('small',ref.marker ? `${markerToken(ref.marker)}에 삽입`:'위치 미지정: 본문 끝');card.append(place,positionInfo);
     const tools=node('div','','image-actions');
-    const move=delta=>{if(imagesBusy)return;const at=index+delta;[attachments[index],attachments[at]]=[attachments[at],attachments[index]];changed=true;generationEpoch++;void renderAttachments();};
+    const move=delta=>{if(imagesBusy)return;const at=index+delta;[attachments[index],attachments[at]]=[attachments[at],attachments[index]];changed=true;generationEpoch++;launch(renderAttachments);};
     const up=btn('앞으로',()=>move(-1)),down=btn('뒤로',()=>move(1));up.disabled=index===0;down.disabled=index===attachments.length-1;
-    tools.append(up,down,btn('제거',()=>{if(imagesBusy)return;const current=attachments.find(r=>r.id===ref.id);if(current?.marker)$('body').value=$('body').value.split(markerToken(current.marker)).join('');attachments=attachments.filter(r=>r.id!==ref.id);changed=true;generationEpoch++;updateCount();void renderAttachments();}));card.append(tools);$('imageList').append(card);
+    tools.append(up,down,btn('제거',()=>{if(imagesBusy)return;const current=attachments.find(r=>r.id===ref.id);if(current?.marker)$('body').value=$('body').value.split(markerToken(current.marker)).join('');attachments=attachments.filter(r=>r.id!==ref.id);changed=true;generationEpoch++;updateCount();launch(renderAttachments);}));card.append(tools);$('imageList').append(card);
     try {const url=await imageUrl(ref,epoch);if(url)img.src=url;}
     catch(e) {card.append(node('p',e.message,'error'));}
   }
@@ -245,7 +258,7 @@ async function runAi(mode) {
       await send('draft',{content:{...c,...result}});notify('AI 작업 중 원고가 변경되어 검수 결과를 임시저장했습니다.');
     } else {load({...c,...result});await persist();notify(result.review.changed ? '제목에 맞게 본문을 교정했습니다. 수정 이유를 확인하세요.':'제목·본문 일치 검수를 통과했습니다.');}
     await refresh();
-  }catch(e){if(epoch===generationEpoch){reviewInfo=e.review || null;changed=true;await persist();void renderReview();}await refresh();throw new Error(e.message+' · 원고·임시저장 목록을 확인하세요.');}
+  }catch(e){if(e instanceof DashboardLayoutError)throw e;if(epoch===generationEpoch){reviewInfo=e.review || null;changed=true;await persist();launch(renderReview);}await refresh();throw new Error(e.message+' · 원고·임시저장 목록을 확인하세요.');}
   finally {generating=false;$('generate').disabled=false;$('reviewPost').disabled=false;$('generating').textContent='';}
 }
 bind('generate',()=>runAi('generate'));bind('reviewPost',()=>runAi('review'));
@@ -298,9 +311,9 @@ async function init() {
   if (prefs) for (const id of preferenceIds) if (prefs[id]!==undefined) $(id)[id==='autoSave'?'checked':'value']=prefs[id];
   const next=new Date(Date.now()+300000);next.setMilliseconds(0);$('at').value=new Date(next.getTime()-next.getTimezoneOffset()*60000).toISOString().slice(0,19);
   $('timeZone').textContent=Intl.DateTimeFormat().resolvedOptions().timeZone;
-  setInterval(() => {void refresh().catch(e=>notify(e.message,true));},2500);
+  intervals.push(setInterval(() => launch(refresh),2500));
   let saving=false,ticking=false;
-  setInterval(async () => {
+  intervals.push(setInterval(() => launch(async () => {
     try {
       const period=durationMs($('autoH').value,$('autoM').value,$('autoS').value);
       if ($('autoSave').checked && changed && !saving && Date.now()-lastAuto>=Math.max(1000,period)) {
@@ -309,8 +322,18 @@ async function init() {
       if (!ticking && !state.paused && state.jobs.some(j=>j.status==='queued' && j.scheduledAt<=Date.now())) {
         ticking=true;try {await send('tick');} finally {ticking=false;}
       }
-    } catch(e) {$('saveStatus').textContent=e.message;}
-  },1000);
+    } catch(e) {if(e instanceof DashboardLayoutError)throw e;$('saveStatus').textContent=e.message;}
+  }),1000));
 }
 window.addEventListener('beforeunload',e => {if (changed) {e.preventDefault();e.returnValue='';}});
-void init().catch(e=>notify(e.message,true));
+window.addEventListener('error',e=>{if(e.error instanceof DashboardLayoutError){e.preventDefault();handleError(e.error);}});
+window.addEventListener('unhandledrejection',e=>{if(e.reason instanceof DashboardLayoutError){e.preventDefault();handleError(e.reason);}});
+launch(init);
+}
+function bootDashboard() {
+  const check=checkDashboard(document,CLIENT_VERSION);
+  if(!check.ok){showRecovery(check.message);return;}
+  try{startDashboard();}catch(e){showRecovery(e.message);}
+}
+if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',bootDashboard,{once:true});
+else bootDashboard();
