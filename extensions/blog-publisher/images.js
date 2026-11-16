@@ -2,17 +2,25 @@ export const MAX_IMAGES = 10, MAX_IMAGE_BYTES = 10 * 1024 * 1024, MAX_POST_IMAGE
 export const MAX_BACKUP_IMAGE_BYTES = 100 * 1024 * 1024;
 const DB_NAME = 'postingStudioImages';
 let connection;
+export function normalizeMarker(raw = '') {
+  const marker=String(raw || '').trim().replace(/^\[\[([^\[\]]+)\]\]$/,'$1');
+  if (marker && !/^[A-Za-z0-9가-힣_-]{1,40}$/.test(marker)) throw new Error('삽입 표시는 한글·영문·숫자·밑줄·하이픈 1~40자로 입력하세요. 예: 1, FI');
+  return marker;
+}
 
 export function normalizeImages(raw = []) {
   if (!Array.isArray(raw) || raw.length > MAX_IMAGES) throw new Error(`이미지는 원고당 최대 ${MAX_IMAGES}장입니다.`);
-  const seen = new Set();
+  const seen = new Set(), markers=new Set();
   const result = raw.map(r => {
     if (!r || !/^[a-f0-9]{64}$/.test(r.id) || !Number.isSafeInteger(r.size) || r.size <= 0 || r.size > MAX_IMAGE_BYTES
       || !['image/png','image/jpeg','image/gif','image/webp'].includes(r.type) || seen.has(r.id))
       throw new Error('이미지 첨부 정보가 올바르지 않습니다. 파일을 다시 선택하세요.');
     seen.add(r.id);
+    const marker=normalizeMarker(r.marker);
+    if (marker && markers.has(marker)) throw new Error(`삽입 표시 [[${marker}]]가 여러 이미지에 연결돼 있습니다.`);
+    if (marker) markers.add(marker);
     return {id:r.id,name:String(r.name || 'image').replace(/[\\/\x00-\x1f]/g,'_').slice(0,200),
-      source:String(r.source || r.name || '').replace(/[\x00-\x1f]/g,'').slice(0,500),type:r.type,size:r.size};
+      source:String(r.source || r.name || '').replace(/[\x00-\x1f]/g,'').slice(0,500),type:r.type,size:r.size,...(marker ? {marker}:{})};
   });
   if (result.reduce((n,r) => n+r.size,0) > MAX_POST_IMAGE_BYTES) throw new Error('한 원고의 이미지 합계는 40MB 이하여야 합니다.');
   return result;

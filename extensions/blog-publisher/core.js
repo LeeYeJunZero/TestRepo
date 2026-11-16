@@ -1,4 +1,5 @@
 import {normalizeImages} from './images.js';
+import {buildLayout} from './layout.js';
 export const PROVIDERS = {
   openai: {name: 'OpenAI', base: 'https://api.openai.com/v1'},
   anthropic: {name: 'Anthropic Claude', base: 'https://api.anthropic.com/v1'},
@@ -50,6 +51,7 @@ export function validateComposer(c, {generate = false} = {}) {
   if (generate && (!c.topic || !c.keywords || !c.persona || !c.model))
     throw new Error('API 모델, 키워드, 주제, 페르소나를 입력하세요.');
   if (!generate && (!c.title || !c.body)) throw new Error('제목과 본문을 작성하거나 AI로 생성하세요.');
+  if (!generate) buildLayout(c);
   if (c.action !== 'local' && !/^[a-zA-Z0-9_-]{4,50}$/.test(c.blogId))
     throw new Error('네이버 블로그 ID를 정확하게 입력하세요. 전체 주소가 아닌 ID입니다.');
 }
@@ -60,6 +62,7 @@ export function buildPrompt(c) {
 독창적이되 과장이나 낚시성 보장은 피하고, 키워드를 자연스럽게 사용하세요.
 제목은 100자 이내, 본문은 약 ${c.length}자. 소제목과 문단을 쓰되 HTML이나 마크다운 기호는 쓰지 마세요.
 반드시 JSON 객체 하나만 반환하세요: {"title":"제목","body":"본문\\n\\n다음 문단","tags":["태그"]}
+${c.images?.some(r=>r.marker) ? '다음 이미지 삽입 표시를 각각 본문 적절한 문단 사이에 정확히 한 번 넣고 철자를 바꾸지 마세요: '+c.images.filter(r=>r.marker).map(r=>`[[${r.marker}]]`).join(', '):''}
 작성 조건(JSON): ${JSON.stringify({keywords:c.keywords, topic:c.topic, persona:c.persona,
     audience:c.audience, tone:c.tone, instructions:c.instructions, references:c.references})}`;
 }
@@ -75,7 +78,7 @@ export function dueTime({mode, at, hours, minutes, seconds}, now = Date.now()) {
   return result;
 }
 export async function fingerprint(c) {
-  const bytes = new TextEncoder().encode(JSON.stringify([c.action,c.blogId,c.title,c.body,c.tags,(c.images || []).map(r=>r.id),
+  const bytes = new TextEncoder().encode(JSON.stringify([c.action,c.blogId,c.title,c.body,c.tags,(c.images || []).map(r=>[r.id,r.marker || '']),
     ...(!c.title || !c.body ? [c.provider,c.model,c.keywords,c.topic,c.persona,c.audience,c.tone,c.instructions,c.references,c.length] : [])]));
   return Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256', bytes)), b => b.toString(16).padStart(2,'0')).join('');
 }

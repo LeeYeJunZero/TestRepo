@@ -1,5 +1,6 @@
 import {ACTIONS, STATES, RUNNING, PROVIDERS, normalizeComposer, durationMs, dueTime, importDrafts} from './core.js';
-import {normalizeImages, storeImage, getImage, exportImages, importImages, referencedImages} from './images.js';
+import {normalizeImages, normalizeMarker, storeImage, getImage, exportImages, importImages, referencedImages} from './images.js';
+import {buildLayout, insertMarkerAt, markerToken} from './layout.js';
 const $ = id => document.getElementById(id);
 let state = {jobs:[],drafts:[],logs:[],keyStatus:{}}, changed = false, lastAuto = Date.now(), fetching = false;
 let generating = false, generationEpoch = 0, timerNotice;
@@ -136,10 +137,31 @@ async function renderAttachments() {
     if (epoch!==imageEpoch) return;
     const card=node('div','','image-card'),img=node('img');img.alt=ref.name;
     card.append(img,node('p',ref.source || ref.name),node('small',`${(ref.size/1024).toFixed(1)} KB`));
+    const positionLabel=node('label','삽입 표시 · 비우면 본문 끝'),position=node('input');
+    position.type='text';position.value=ref.marker || '';position.placeholder='예: 1 또는 FI';position.maxLength=44;position.setAttribute('aria-label',ref.name+' 삽입 표시');positionLabel.append(position);card.append(positionLabel);
+    position.addEventListener('change',()=>{
+      const current=attachments.find(r=>r.id===ref.id);
+      try {
+        if(imagesBusy)throw new Error('첨부가 끝난 뒤 위치를 지정하세요.');
+        const marker=normalizeMarker(position.value),next=attachments.map(r=>r.id===ref.id ? {...r,marker}:r);
+        const normalized=normalizeImages(next);
+        if(current.marker && current.marker!==marker)$('body').value=$('body').value.split(markerToken(current.marker)).join(marker ? markerToken(marker):'');
+        attachments=normalized;position.value=marker;positionInfo.textContent=marker ? `${markerToken(marker)}에 삽입`:'위치 미지정: 본문 끝';changed=true;generationEpoch++;updateCount();
+      }catch(e){position.value=current?.marker || '';notify(e.message,true);}
+    });
+    const place=btn('커서 위치에 삽입',()=>{
+      if(imagesBusy)throw new Error('첨부가 끝난 뒤 위치를 지정하세요.');
+      let marker=attachments.find(r=>r.id===ref.id)?.marker;
+      if(!marker){let n=1;while(attachments.some(r=>r.marker===String(n)) || $('body').value.includes(markerToken(String(n))))n++;marker=String(n);}
+      const inserted=insertMarkerAt($('body').value,marker,$('body').selectionStart);
+      attachments=normalizeImages(attachments.map(r=>r.id===ref.id ? {...r,marker}:r));
+      $('body').value=inserted.body;$('body').focus();$('body').setSelectionRange(inserted.cursor,inserted.cursor);
+      changed=true;generationEpoch++;updateCount();void renderAttachments();notify(`${ref.name} → ${markerToken(marker)} 위치로 지정했습니다.`);
+    });const positionInfo=node('small',ref.marker ? `${markerToken(ref.marker)}에 삽입`:'위치 미지정: 본문 끝');card.append(place,positionInfo);
     const tools=node('div','','image-actions');
     const move=delta=>{if(imagesBusy)return;const at=index+delta;[attachments[index],attachments[at]]=[attachments[at],attachments[index]];changed=true;generationEpoch++;void renderAttachments();};
     const up=btn('앞으로',()=>move(-1)),down=btn('뒤로',()=>move(1));up.disabled=index===0;down.disabled=index===attachments.length-1;
-    tools.append(up,down,btn('제거',()=>{if(imagesBusy)return;attachments=attachments.filter(r=>r.id!==ref.id);changed=true;generationEpoch++;void renderAttachments();}));card.append(tools);$('imageList').append(card);
+    tools.append(up,down,btn('제거',()=>{if(imagesBusy)return;const current=attachments.find(r=>r.id===ref.id);if(current?.marker)$('body').value=$('body').value.split(markerToken(current.marker)).join('');attachments=attachments.filter(r=>r.id!==ref.id);changed=true;generationEpoch++;updateCount();void renderAttachments();}));card.append(tools);$('imageList').append(card);
     try {const url=await imageUrl(ref,epoch);if(url)img.src=url;}
     catch(e) {card.append(node('p',e.message,'error'));}
   }
@@ -182,7 +204,7 @@ $('imageFiles').addEventListener('change',async()=>{try {await attachFiles([...$
 $('folderSearch').addEventListener('input',renderFolder);
 bind('closeFolder',()=>$('folderPicker').close());
 bind('attachFolderImages',async()=>{await attachFiles([...folderSelection].sort((a,b)=>a-b).map(i=>folderFiles[i]));$('folderPicker').close();});
-bind('clearImages',()=>{if(imagesBusy)throw new Error('첨부 완료 후 다시 시도하세요.');attachments=[];changed=true;generationEpoch++;return renderAttachments();});
+bind('clearImages',()=>{if(imagesBusy)throw new Error('첨부 완료 후 다시 시도하세요.');for(const ref of attachments)if(ref.marker)$('body').value=$('body').value.split(markerToken(ref.marker)).join('');attachments=[];changed=true;generationEpoch++;updateCount();return renderAttachments();});
 bind('pruneImages',async()=>{await persist();const n=await send('prune-images');notify(`미사용 이미지 ${n}개를 정리했습니다. 최근 10분 내 추가 파일은 보관합니다.`);});
 for (const b of document.querySelectorAll('[data-panel]')) b.addEventListener('click',() => panel(b.dataset.panel));
 for (const b of document.querySelectorAll('[data-persona]')) b.addEventListener('click',() => {$('persona').value=b.dataset.persona;changed=true;generationEpoch++;});
@@ -216,9 +238,12 @@ bind('newPost',async () => {
   await send('draft',{content:content()});load({...content(),title:'',body:'',tags:[],topic:'',keywords:'',images:[]});await persist();await refresh();notify('이전 원고를 저장하고 새 원고를 열었습니다.');
 });
 bind('previewBtn',async() => {
-  const c=content();$('previewTitle').textContent=c.title;$('previewBody').textContent=c.body;$('previewTags').textContent=c.tags.map(t=>'#'+t).join(' ');$('previewImages').replaceChildren();$('preview').showModal();
+  const c=content(),layout=buildLayout(c);$('previewTitle').textContent=c.title;$('previewBody').replaceChildren();$('previewTags').textContent='';$('previewImages').replaceChildren();$('preview').showModal();
   const epoch=imageEpoch;
-  for(const ref of c.images){const url=await imageUrl(ref,epoch);if(url){const img=node('img');img.src=url;img.alt=ref.name;$('previewImages').append(img);}}
+  for(const block of layout.blocks){
+    if(block.type==='text'){$('previewBody').append(node('div',block.text,'preview-text'));continue;}
+    for(const ref of block.images){const url=await imageUrl(ref,epoch);if(url){const figure=node('figure','','preview-image'),img=node('img');img.src=url;img.alt=ref.name;figure.append(img,node('figcaption',ref.name));$('previewBody').append(figure);}}
+  }
 });
 bind('closePreview',() => $('preview').close());
 bind('copy',async () => {const c=content();await navigator.clipboard.writeText(`${c.title}\n\n${c.body}\n\n${c.tags.map(t=>'#'+t).join(' ')}`);notify(c.images.length ? '텍스트를 복사했습니다. 이미지는 작업 실행 시 편집기에 첨부합니다.':'원고를 복사했습니다.');});

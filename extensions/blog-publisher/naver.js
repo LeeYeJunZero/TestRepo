@@ -12,6 +12,7 @@ export async function naverEditor(command) {
     /image|\.png|\.jpe?g|\.gif|\.webp/i.test(el.accept) || el.closest('.se-popup-image, .se-image-uploader'));
   const uploaded = () => [...document.querySelectorAll('.se-main-container .se-component.se-image img')].filter(el =>
     /^https:\/\//.test(el.currentSrc || el.src) && el.complete && el.naturalWidth>0);
+  const imageKey=img=>{try{const u=new URL(img.currentSrc || img.src);return u.origin+u.pathname;}catch{return '';}};
   const actualBody = () => norm([...document.querySelectorAll('.se-main-container .se-component.se-text')].map(value).join(' '));
   const check = () => {
     if (globalThis.__postingStudioCancelled === jobId) throw new Error('중단 요청을 확인했습니다.');
@@ -21,20 +22,56 @@ export async function naverEditor(command) {
   if (op === 'cancel') { globalThis.__postingStudioCancelled = jobId; return {cancelled:true}; }
   if (op === 'probe') return {ready:!!title() && !!body(),url:location.href};
   check();
-  if (op === 'verify-post') return {valid:value(title())===norm(post.title) && actualBody().includes(norm(post.body))};
+  if (op === 'verify-post') {
+    if (!command.layout) return {valid:value(title())===norm(post.title) && actualBody().includes(norm(post.body))};
+    const placed=globalThis.__postingStudioPlacedImages,stream=[],token=id=>'\ufffc'+id+'\ufffc';
+    if (placed?.jobId!==jobId) return {valid:false};
+    for(const component of document.querySelectorAll('.se-main-container .se-component.se-text, .se-main-container .se-component.se-image')) {
+      if(component.parentElement?.closest('.se-component.se-image'))continue;
+      if(component.classList.contains('se-image')) {
+        const nodes=uploaded().filter(img=>img.closest('.se-component.se-image')===component);
+        if(!nodes.length)return {valid:false};
+        for(const img of nodes){const id=placed.nodes.get(img) || placed.urls.get(imageKey(img));if(!id)return {valid:false};stream.push(token(id));}
+      } else stream.push([...component.querySelectorAll('[contenteditable="true"]')]
+        .filter(el=>!el.parentElement?.closest('[contenteditable="true"]')).map(value).join('\n'));
+    }
+    const expected=command.layout.map(b=>b.type==='text' ? b.text:b.images.map(r=>token(r.id)).join('\n')).join('\n');
+    return {valid:value(title())===norm(post.title) && norm(stream.join('\n'))===norm(expected)};
+  }
   if (op === 'image-probe') {
     const before=globalThis.__postingStudioImageBefore;
     const nodes=uploaded();
-    return {inputReady:imageInputs().length===1,imageCount:nodes.length,
-      newImageReady:before?.jobId===jobId && nodes.length>=before.count+(Number(command.expected)||1)};
+    const fresh=before?.jobId===jobId ? nodes.filter(img=>!before.nodes.includes(img) && !before.keys.has(imageKey(img))):[];
+    const ready=fresh.length===(Number(command.expected)||1);
+    if(ready && Array.isArray(command.imageIds) && command.imageIds.length===fresh.length) {
+      const placed=globalThis.__postingStudioPlacedImages;
+      if(placed?.jobId===jobId)fresh.forEach((img,index)=>{placed.nodes.set(img,command.imageIds[index]);placed.urls.set(imageKey(img),command.imageIds[index]);});
+    }
+    return {inputReady:imageInputs().length===1,imageCount:nodes.length,newImageReady:ready};
   }
   if (op === 'prepare-image') {
     const paragraphs=[...document.querySelectorAll('.se-main-container .se-component.se-text [contenteditable="true"]')];
     const last=paragraphs.at(-1);
     if (!last) throw new Error('사진을 넣을 본문 위치를 찾지 못했습니다.');
-    last.focus();const range=document.createRange();range.selectNodeContents(last);range.collapse(false);
+    let range=document.createRange();
+    if(command.marker) {
+      const token='[['+command.marker+']]',matches=[];
+      for(const component of document.querySelectorAll('.se-main-container .se-component.se-text')) {
+        const walker=document.createTreeWalker(component,NodeFilter.SHOW_TEXT),parts=[];let n,str='';
+        while((n=walker.nextNode()))if(n.parentElement?.closest('[contenteditable="true"]')){parts.push({node:n,start:str.length});str+=n.textContent;}
+        for(let at=str.indexOf(token);at>=0;at=str.indexOf(token,at+token.length))matches.push({parts,at});
+      }
+      if(matches.length!==1)throw new Error(`이미지 위치 ${token}를 본문에서 하나로 확정할 수 없습니다.`);
+      const {parts,at}=matches[0],start=parts.find(p=>p.start+p.node.length>at),end=parts.find(p=>p.start+p.node.length>=at+token.length);
+      if(!start || !end)throw new Error('이미지 위치의 텍스트 범위를 찾지 못했습니다.');
+      start.node.parentElement.closest('[contenteditable="true"]').focus();
+      range.setStart(start.node,at-start.start);range.setEnd(end.node,at+token.length-end.start);
+      const selected=window.getSelection();selected.removeAllRanges();selected.addRange(range);
+      check();if(!document.execCommand('delete',false))throw new Error('이미지 삽입 표시를 지우지 못했습니다.');
+      const current=window.getSelection();if(!current.rangeCount)throw new Error('이미지 삽입 커서를 유지하지 못했습니다.');range=current.getRangeAt(0).cloneRange();
+    } else {last.focus();range.selectNodeContents(last);range.collapse(false);}
     const selection=window.getSelection();selection.removeAllRanges();selection.addRange(range);
-    globalThis.__postingStudioImageBefore={jobId,count:uploaded().length};
+    globalThis.__postingStudioImageBefore={jobId,nodes:uploaded(),keys:new Set(uploaded().map(imageKey))};
     if (!imageInputs().length) {
       const toolbar=all('button').filter(el => el.dataset.name==='image' || ['사진','사진 추가'].includes(norm(el.getAttribute('aria-label') || el.title || el.textContent)));
       if (toolbar.length!==1) throw new Error('네이버 사진 첨부 버튼을 확정할 수 없습니다.');
@@ -68,6 +105,7 @@ export async function naverEditor(command) {
     const existingText = [...document.querySelectorAll('.se-main-container [contenteditable="true"]')].some(value);
     const existingMedia = document.querySelector('.se-main-container .se-image, .se-main-container .se-video, .se-main-container .se-file');
     if (value(t) || value(b) || existingText || existingMedia) throw new Error('편집기에 기존 내용이 있습니다. 기존 글을 덮어쓰지 않고 멈췄습니다. 새 글 화면을 준비하세요.');
+    globalThis.__postingStudioPlacedImages={jobId,nodes:new Map(),urls:new Map()};
     const insert = (el, str) => {
       check(); el.focus();
       const range = document.createRange(); range.selectNodeContents(el);

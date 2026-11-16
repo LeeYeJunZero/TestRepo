@@ -4,6 +4,7 @@ import {tmpdir} from 'node:os';
 import path from 'node:path';
 import assert from 'node:assert/strict';
 import {naverEditor} from '../extensions/blog-publisher/naver.js';
+import {buildLayout} from '../extensions/blog-publisher/layout.js';
 
 // Fresh test profile only. No user cookies, API keys, or live Naver posting.
 const root=process.cwd(),extension=path.join(root,'extensions/blog-publisher');
@@ -130,6 +131,19 @@ try {
     await waitUntil(()=>ui.eval(`document.getElementById('imageCount').textContent==='1 / 10장' && document.querySelector('#imageList img')?.naturalWidth===2`));
     await ui.eval(`globalThis.imageTest=import(chrome.runtime.getURL('images.js'))`);
   });
+  await check('커서 위치 표시·이미지 연결·중간 위치 미리보기',async()=>{
+    await ui.eval(`(()=>{const body=document.getElementById('body');body.value='ABCDE';body.focus();body.setSelectionRange(1,1);body.dispatchEvent(new Event('input'));[...document.querySelectorAll('#imageList button')].find(b=>b.textContent==='커서 위치에 삽입').click()})()`);
+    await waitUntil(()=>ui.eval(`document.getElementById('body').value.includes('[[1]]') && document.querySelector('#imageList input')?.value==='1'`));
+    await ui.eval(`document.getElementById('previewBtn').click()`);
+    await waitUntil(()=>ui.eval(`document.querySelector('#previewBody figure img')?.naturalWidth===2`));
+    const preview=await ui.eval(`(()=>{const figure=document.querySelector('#previewBody figure');return [figure.previousElementSibling.textContent.trim(),figure.nextElementSibling.textContent.trim(),document.getElementById('previewBody').textContent.includes('[[1]]')]})()`);
+    assert.deepEqual(preview,['A','BCDE',false]);await ui.eval(`document.getElementById('preview').close()`);
+  });
+  await check('삽입 표시 이름 변경 시 기존 본문 표시도 함께 변경',async()=>{
+    await ui.eval(`(()=>{const input=document.querySelector('#imageList input');input.value='FI';input.dispatchEvent(new Event('change'))})()`);
+    assert.ok(await ui.eval(`document.getElementById('body').value.includes('[[FI]]') && !document.getElementById('body').value.includes('[[1]]')`));
+    await waitUntil(async()=> (await msg('state')).data.composer.images?.[0]?.marker==='FI');
+  });
   await check('이미지 포함 백업·바이트 복원·해시 변조 차단',async()=>{
     const backup=(await msg('backup')).data;
     const exported=await ui.eval(`(async()=>{const lib=await globalThis.imageTest;return lib.exportImages(lib.referencedImages(${JSON.stringify(backup)}))})()`);
@@ -172,6 +186,29 @@ try {
   const fixture=`<style>[contenteditable]{display:block;width:400px;min-height:20px}button{display:block}</style><div class="se-main-container"><div class="se-documentTitle"><p contenteditable="true"></p></div><div class="se-component se-text"><div class="se-component-content"><div class="se-section-text"><p contenteditable="true"></p></div></div></div></div><button id="save">저장</button><button id="first">발행</button>`;
   const reset=()=>dom.eval(`document.body.innerHTML=${JSON.stringify(fixture)};delete globalThis.__postingStudioCancelled;`);
   const act=cmd=>dom.eval(`(${naverEditor.toString()})(${JSON.stringify(cmd)})`);
+  async function positionFixture(wrong=false) {
+    await reset();
+    function installUpload(wrong) {
+      const input=document.createElement('input');input.type='file';input.accept='image/*';input.multiple=true;document.body.append(input);
+      input.addEventListener('change',()=>{
+        const range=window.getSelection().getRangeAt(0);
+        const target=range.startContainer.nodeType===Node.TEXT_NODE ? range.startContainer.parentElement:range.startContainer;
+        const comp=target.closest('.se-component.se-text'),paragraph=comp.querySelector('[contenteditable=true]');
+        const before=document.createRange();before.selectNodeContents(paragraph);before.setEnd(range.startContainer,range.startOffset);
+        const after=document.createRange();after.selectNodeContents(paragraph);after.setStart(range.startContainer,range.startOffset);
+        const asText=n=>n.nodeType===Node.TEXT_NODE ? n.textContent:n.nodeName==='BR' ? '\n'
+          :[...n.childNodes].map(asText).join('')+(['DIV','P'].includes(n.nodeName) ? '\n':'');
+        const block=text=>{const div=document.createElement('div');div.className='se-component se-text';const p=document.createElement('p');p.contentEditable='true';p.textContent=text;div.append(p);return div;};
+        const inserted=[...input.files].map(f=>{
+          const div=document.createElement('div');div.className='se-component se-image';const img=document.createElement('img');
+          Object.defineProperties(img,{currentSrc:{value:'https://postfiles.pstatic.net/'+f.name},complete:{value:true},naturalWidth:{value:2}});div.append(img);return div;
+        });
+        if(wrong)document.querySelector('.se-main-container').append(...inserted);
+        else comp.replaceWith(block(asText(before.cloneContents())),...inserted,block(asText(after.cloneContents())));
+      });
+    }
+    await dom.eval(`(${installUpload.toString()})(${wrong})`);
+  }
   await check('편집기 DOM 입력·태그·원문 검증',async()=>{
     await reset();assert.equal((await act({op:'probe'})).ready,true);
     const r=await act({op:'fill',post:c,jobId:'test'});assert.equal(r.filled,true);
@@ -191,6 +228,35 @@ try {
     assert.equal(result.count,2);assert.deepEqual((await dom.eval('globalThis.receivedFiles')).map(f=>f.name),['1.png','2.png']);
     assert.equal((await act({op:'image-probe',jobId:'test',expected:2})).newImageReady,true);
     assert.equal((await act({op:'verify-post',jobId:'test',post:c})).valid,true);
+  });
+  await check('A와 B 사이 표시를 실제 이미지 컴포넌트로 대체',async()=>{
+    const ref={...imagePayload,name:'FI.png',marker:'1'},post={...c,body:'A[[1]]BCDE',images:[ref],tags:[]};
+    await positionFixture();await act({op:'fill',jobId:'position',post});
+    await act({op:'prepare-image',jobId:'position',marker:'1'});
+    await act({op:'attach-images',jobId:'position',images:[ref]});
+    assert.equal((await act({op:'image-probe',jobId:'position',expected:1,imageIds:[ref.id]})).newImageReady,true);
+    assert.equal((await act({op:'verify-post',jobId:'position',post,layout:buildLayout(post).blocks})).valid,true);
+    assert.equal(await dom.eval(`document.querySelector('.se-main-container').textContent.includes('[[1]]')`),false);
+  });
+  await check('사진이 끝에 잘못 들어가면 최종 위치 검증 거부',async()=>{
+    const ref={...imagePayload,name:'FI.png',marker:'1'},post={...c,body:'A[[1]]BCDE',images:[ref],tags:[]};
+    await positionFixture(true);await act({op:'fill',jobId:'wrong',post});await act({op:'prepare-image',jobId:'wrong',marker:'1'});
+    await act({op:'attach-images',jobId:'wrong',images:[ref]});await act({op:'image-probe',jobId:'wrong',expected:1,imageIds:[ref.id]});
+    assert.equal((await act({op:'verify-post',jobId:'wrong',post,layout:buildLayout(post).blocks})).valid,false);
+  });
+  await check('편집기가 이미지 DOM을 교체해도 위치 확인 유지',async()=>{
+    const ref={...imagePayload,name:'FI.png',marker:'1'},post={...c,body:'A[[1]]B',images:[ref],tags:[]};
+    await positionFixture();await act({op:'fill',jobId:'replace',post});await act({op:'prepare-image',jobId:'replace',marker:'1'});
+    await act({op:'attach-images',jobId:'replace',images:[ref]});await act({op:'image-probe',jobId:'replace',expected:1,imageIds:[ref.id]});
+    await dom.eval(`(()=>{const old=document.querySelector('.se-image img'),img=old.cloneNode();Object.defineProperties(img,{currentSrc:{value:old.currentSrc+'?type=w773'},complete:{value:true},naturalWidth:{value:2}});old.replaceWith(img)})()`);
+    assert.equal((await act({op:'verify-post',jobId:'replace',post,layout:buildLayout(post).blocks})).valid,true);
+  });
+  await check('중간 이미지 여러 장과 끝 첨부의 최종 순서 검증',async()=>{
+    const first={...imagePayload,name:'FI.png',marker:'1'},second={...imagePayload,id:'e'.repeat(64),name:'F2.png',marker:'2'},tail={...imagePayload,id:'d'.repeat(64),name:'tail.png'};
+    const post={...c,body:'A[[1]]B[[2]]CDE',images:[first,tail,second]},layout=buildLayout(post);
+    await positionFixture();await act({op:'fill',jobId:'many',post});
+    for(const g of layout.groups){await act({op:'prepare-image',jobId:'many',marker:g.marker});await act({op:'attach-images',jobId:'many',images:g.images.map(ref=>({...ref,data:imagePayload.data}))});await act({op:'image-probe',jobId:'many',expected:g.images.length,imageIds:g.images.map(r=>r.id)});}
+    assert.equal((await act({op:'verify-post',jobId:'many',post,layout:layout.blocks})).valid,true);
   });
   await check('임시저장 완료는 새로운 성공 안내로만 인정',async()=>{
     await reset();await dom.eval(`document.getElementById('save').onclick=()=>setTimeout(()=>{const p=document.createElement('p');p.textContent='임시저장되었습니다';document.body.append(p)},100)`);

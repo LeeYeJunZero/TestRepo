@@ -4,6 +4,7 @@ import {normalizeComposer, normalizePost, parseGenerated, durationMs, dueTime, r
 import {listModels, generate} from '../extensions/blog-publisher/api.js';
 import {publishedUrl} from '../extensions/blog-publisher/naver.js';
 import {imageType, inspectImage, normalizeImages, MAX_IMAGE_BYTES} from '../extensions/blog-publisher/images.js';
+import {buildLayout, insertMarkerAt} from '../extensions/blog-publisher/layout.js';
 
 const c = normalizeComposer({provider:'openai',model:'text-model',keywords:'대원외고 영어',topic:'구문 분석',persona:'친절한 학습 코치',title:'제목',body:'본문',tags:['영어']});
 const response = data => new Response(JSON.stringify(data),{status:200,headers:{'Content-Type':'application/json'}});
@@ -123,4 +124,34 @@ test('BP-16 원고 백업과 복원은 이미지 참조·순서를 유지',()=>{
   const restored=importDrafts(publicBackup({composer:content,drafts:[],jobs:[]}));
   assert.deepEqual(restored[0].content.images,images);
   const prompt=buildPrompt(content);assert.ok(!prompt.includes(images[0].id));assert.ok(!prompt.includes('test1/1.png'));
+});
+const fi={id:'f'.repeat(64),name:'FI.png',source:'test1/FI.png',size:100,type:'image/png',marker:'1'};
+test('BP-17 A와 B 사이 표시를 이미지 블록으로 치환·일반 숫자 보존',()=>{
+  const layout=buildLayout({...c,body:'A[[1]]BCDE 1',tags:[],images:[fi]});
+  assert.deepEqual(layout.blocks.map(b=>b.type==='text'?b.text:b.images[0].name),['A','FI.png','BCDE 1']);
+  assert.equal(layout.groups[0].marker,'1');
+});
+test('BP-18 중복·미연결·누락 삽입 표시는 실행 전에 거부',()=>{
+  for(const body of ['A[[1]]B[[1]]C','A[[2]]B','ABCDE'])assert.throws(()=>validateComposer({...c,body,images:[fi]}));
+  assert.throws(()=>buildLayout({...c,body:'A[[unknown]]B'}));
+  assert.throws(()=>normalizeImages([fi,{...fi,id:'e'.repeat(64)}]));
+  assert.throws(()=>normalizeImages([{...fi,marker:'bad marker'}]));
+});
+test('BP-19 커서 삽입·기존 표시 이동은 본문을 보존',()=>{
+  const inserted=insertMarkerAt('ABCDE','1',1);
+  assert.equal(inserted.body,'A\n\n[[1]]\n\nBCDE');
+  const moved=insertMarkerAt('A[[1]]BCDE','1',9);
+  assert.equal(moved.body.replace(/\s/g,''),'ABCD[[1]]E');
+  assert.equal((moved.body.match(/\[\[1\]\]/g)||[]).length,1);
+});
+test('BP-20 본문 순서·끝 첨부·백업·중복 판정에 위치 반영',async()=>{
+  const tail={...fi,id:'d'.repeat(64),marker:'',name:'tail.png'};
+  const second={...fi,id:'e'.repeat(64),marker:'FI2',name:'2.png'};
+  const post={...c,body:'A[[FI2]]B[[1]]C',images:[fi,tail,second]};
+  const layout=buildLayout(post);
+  assert.deepEqual(layout.groups.map(g=>g.marker),['','FI2','1']);
+  assert.equal(layout.blocks.at(-1).images[0].name,'tail.png');
+  const restored=importDrafts(publicBackup({composer:post,drafts:[],jobs:[]}));assert.equal(restored[0].content.images[0].marker,'1');
+  assert.ok(buildPrompt(post).includes('[[FI2]]'));
+  assert.notEqual(await fingerprint(post),await fingerprint({...post,images:[{...fi,marker:'3'},tail,second]}));
 });

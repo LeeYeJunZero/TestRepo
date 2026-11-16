@@ -2,6 +2,7 @@ import {ACTIONS, RUNNING, PROVIDERS, normalizeComposer, validateComposer, dueTim
 import {generate, listModels} from './api.js';
 import {naverEditor, publishedUrl} from './naver.js';
 import {ensureImages, imagePayload, referencedImages, pruneImages} from './images.js';
+import {buildLayout} from './layout.js';
 
 const DB = 'postingStudio';
 const empty = () => ({composer:{},drafts:[],jobs:[],logs:[],settings:{},paused:false});
@@ -86,10 +87,11 @@ async function editor(job) {
   const result = (await exec(tab.id,{op:'fill',jobId:job.id,post:job.content},frame))[0]?.result;
   if (!result?.filled) throw new Error('제목·본문 입력 완료를 확인하지 못했습니다.');
   await log('info','FILL',`제목·본문 ${result.bodyChars}자 입력 및 원문 대조 완료`,job.id);
-  if (job.content.images?.length) {
+  const layout=buildLayout(job.content);
+  for (const group of layout.groups) {
     await alive(job.id);
-    for (const ref of job.content.images) await log('info','IMAGE',`업로드 준비 · ${ref.source || ref.name} · ${ref.size} bytes`,job.id);
-    const prepared=(await exec(tab.id,{op:'prepare-image',jobId:job.id},frame))[0]?.result;
+    for (const ref of group.images) await log('info','IMAGE',`업로드 준비 · ${ref.source || ref.name} · 위치 ${group.marker ? '[['+group.marker+']]':'본문 끝'} · ${ref.size} bytes`,job.id);
+    const prepared=(await exec(tab.id,{op:'prepare-image',jobId:job.id,marker:group.marker},frame))[0]?.result;
     if (!prepared?.prepared) throw new Error('사진 입력 위치를 준비하지 못했습니다. 발행을 중단합니다.');
     let ready=false;
     for (let i=0;i<25;i++) {
@@ -99,20 +101,20 @@ async function editor(job) {
       await new Promise(r=>setTimeout(r,200));
     }
     if (!ready) throw new Error('사진 파일 입력 영역을 찾지 못했습니다. 열린 편집기를 확인하세요. 이미지 없이 발행하지 않습니다.');
-    const images=[];for (const ref of job.content.images) images.push(await imagePayload(ref));
+    const images=[];for (const ref of group.images) images.push(await imagePayload(ref));
     const attached=(await exec(tab.id,{op:'attach-images',jobId:job.id,images},frame))[0]?.result;
     if (!attached?.attached) throw new Error('사진 파일을 편집기에 전달하지 못했습니다.');
     let verified=false;
     for (let i=0;i<90;i++) {
       await alive(job.id);
-      const probe=(await exec(tab.id,{op:'image-probe',jobId:job.id,expected:images.length},frame))[0]?.result;
+      const probe=(await exec(tab.id,{op:'image-probe',jobId:job.id,expected:images.length,imageIds:group.images.map(r=>r.id)},frame))[0]?.result;
       if (probe?.newImageReady) {verified=true;break;}
       await new Promise(r=>setTimeout(r,500));
     }
     if (!verified) throw new Error('선택한 이미지 전체의 업로드 완료를 확인하지 못했습니다. 이미지 누락 방지를 위해 저장·발행을 중단합니다.');
     await log('success','IMAGE',`이미지 ${images.length}장 업로드 완료 확인`,job.id);
   }
-  const verified=(await exec(tab.id,{op:'verify-post',jobId:job.id,post:job.content},frame))[0]?.result;
+  const verified=(await exec(tab.id,{op:'verify-post',jobId:job.id,post:job.content,layout:layout.blocks},frame))[0]?.result;
   if (!verified?.valid) throw new Error('최종 제목·본문 대조에 실패했습니다. 저장·발행 전에 작업 화면을 확인하세요.');
   if (job.content.action === 'editor') return {message:'편집기에 입력했습니다. 발행하지 않았습니다.',url:(await chrome.tabs.get(tab.id)).url};
   await alive(job.id);
