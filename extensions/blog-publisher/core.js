@@ -1,14 +1,15 @@
 import {normalizeImages} from './images.js';
 import {buildLayout} from './layout.js';
+import {normalizeReview} from './review.js';
 export const PROVIDERS = {
   openai: {name: 'OpenAI', base: 'https://api.openai.com/v1'},
   anthropic: {name: 'Anthropic Claude', base: 'https://api.anthropic.com/v1'},
   gemini: {name: 'Google Gemini', base: 'https://generativelanguage.googleapis.com/v1beta'}
 };
 export const ACTIONS = {local: '로컬 임시저장', editor: '네이버 편집기 채우기', draft: '네이버 임시저장', publish: '네이버 발행'};
-export const RUNNING = ['generating', 'opening', 'filling', 'submitting', 'cancelling'];
+export const RUNNING = ['generating', 'reviewing', 'opening', 'filling', 'submitting', 'cancelling'];
 export const STATES = {
-  queued: '예약 대기', paused: '일시정지', generating: 'AI 작성 중', opening: '편집기 여는 중',
+  queued: '예약 대기', paused: '일시정지', generating: 'AI 작성 중', reviewing: '제목 기준 검수 중', opening: '편집기 여는 중',
   filling: '내용 입력 중', submitting: '저장·발행 확인 중', cancelling: '중단 요청 중',
   done: '완료', failed: '실패', needs_review: '화면 확인 필요', cancelled: '취소'
 };
@@ -44,7 +45,7 @@ export function normalizeComposer(raw = {}) {
     instructions: text(raw.instructions, 4000), references: text(raw.references, 18000),
     length: Math.max(300, Math.min(10000, Number(raw.length) || 1800)),
     blogId: text(raw.blogId, 50), action: Object.hasOwn(ACTIONS, raw.action) ? raw.action : 'local',
-    ...normalizePost(raw), images:normalizeImages(raw.images || [])
+    ...normalizePost(raw), images:normalizeImages(raw.images || []), review:normalizeReview(raw.review)
   };
 }
 export function validateComposer(c, {generate = false} = {}) {
@@ -62,6 +63,7 @@ export function buildPrompt(c) {
 독창적이되 과장이나 낚시성 보장은 피하고, 키워드를 자연스럽게 사용하세요.
 제목은 100자 이내, 본문은 약 ${c.length}자. 소제목과 문단을 쓰되 HTML이나 마크다운 기호는 쓰지 마세요.
 반드시 JSON 객체 하나만 반환하세요: {"title":"제목","body":"본문\\n\\n다음 문단","tags":["태그"]}
+${c.title ? '기준 제목은 '+JSON.stringify(c.title)+'입니다. 제목을 그대로 유지하고 다른 키워드보다 이 제목의 대상·유형·범위를 우선해 본문을 작성하세요.':''}
 ${c.images?.some(r=>r.marker) ? '다음 이미지 삽입 표시를 각각 본문 적절한 문단 사이에 정확히 한 번 넣고 철자를 바꾸지 마세요: '+c.images.filter(r=>r.marker).map(r=>`[[${r.marker}]]`).join(', '):''}
 작성 조건(JSON): ${JSON.stringify({keywords:c.keywords, topic:c.topic, persona:c.persona,
     audience:c.audience, tone:c.tone, instructions:c.instructions, references:c.references})}`;
@@ -98,7 +100,7 @@ export function importDrafts(data) {
   const raw = [...data.drafts.map(d => d.content),data.composer,...(Array.isArray(data.jobs) ? data.jobs.slice(0,500).map(j => j.content):[])];
   const seen = new Set(), drafts = [];
   for (const item of raw.filter(Boolean)) {
-    const content = normalizeComposer(item),key = JSON.stringify(content);
+    const content = normalizeComposer({...item,review:null}),key = JSON.stringify(content);
     if (seen.has(key) || (!content.title && !content.body && !content.topic && !content.keywords)) continue;
     seen.add(key);drafts.push({id:crypto.randomUUID(),savedAt:Date.now(),content});
     if (drafts.length === 200) break;

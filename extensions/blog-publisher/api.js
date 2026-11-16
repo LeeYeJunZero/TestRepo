@@ -1,4 +1,5 @@
 import {PROVIDERS, buildPrompt, parseGenerated, redact} from './core.js';
+import {buildReviewPrompt, validateReviewInput, parseReviewReply} from './review.js';
 
 export class ApiError extends Error {
   constructor(message, retryable = false) { super(message); this.retryable = retryable; }
@@ -41,8 +42,7 @@ export async function listModels(provider, key, fetcher = fetch) {
   }
   return [...new Map(list.map(m => [m.id,m])).values()].sort((a,b) => a.name.localeCompare(b.name));
 }
-export async function generate(c, key, signal, fetcher = fetch) {
-  const prompt = buildPrompt(c);
+async function complete(c, key, prompt, signal, fetcher = fetch) {
   let data, output;
   if (c.provider === 'openai') {
     data = await request(c.provider,key,'/responses',{model:c.model,input:prompt,max_output_tokens:12000,store:false},signal,fetcher);
@@ -60,5 +60,14 @@ export async function generate(c, key, signal, fetcher = fetch) {
     if (data.candidates?.[0]?.finishReason === 'MAX_TOKENS') throw new ApiError('API 응답이 잘렸습니다. 목표 글 길이를 줄이세요.');
   }
   if (!output) throw new ApiError('텍스트가 반환되지 않았습니다. 선택한 모델의 텍스트 생성 지원과 API 정책을 확인하세요.');
-  return {...parseGenerated(output), usage:data.usage || data.usageMetadata || null};
+  return {output,usage:data.usage || data.usageMetadata || null};
+}
+export async function generate(c,key,signal,fetcher=fetch) {
+  const r=await complete(c,key,buildPrompt(c),signal,fetcher),draft=parseGenerated(r.output);
+  return {...draft,title:c.title || draft.title,usage:r.usage};
+}
+export async function review(c,key,signal,fetcher=fetch) {
+  validateReviewInput(c);
+  const r=await complete(c,key,buildReviewPrompt(c),signal,fetcher);
+  return {...await parseReviewReply(r.output,c),usage:r.usage};
 }

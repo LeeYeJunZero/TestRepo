@@ -1,10 +1,12 @@
 import {ACTIONS, STATES, RUNNING, PROVIDERS, normalizeComposer, durationMs, dueTime, importDrafts} from './core.js';
 import {normalizeImages, normalizeMarker, storeImage, getImage, exportImages, importImages, referencedImages} from './images.js';
 import {buildLayout, insertMarkerAt, markerToken} from './layout.js';
+import {isReviewCurrent} from './review.js';
 const $ = id => document.getElementById(id);
 let state = {jobs:[],drafts:[],logs:[],keyStatus:{}}, changed = false, lastAuto = Date.now(), fetching = false;
 let generating = false, generationEpoch = 0, timerNotice;
 let attachments=[],imagesBusy=false,folderFiles=[],folderSelection=new Set(),imageEpoch=0;
+let reviewInfo=null,reviewEpoch=0;
 const imageURLs=new Map();
 const fields = ['provider','model','keywords','topic','persona','audience','tone','length','references','instructions','title','body','tags','blogId','action'];
 function notify(msg,error=false) {
@@ -13,21 +15,31 @@ function notify(msg,error=false) {
 }
 async function send(cmd, values={}) {
   const r = await chrome.runtime.sendMessage({cmd,...values});
-  if (!r?.ok) throw new Error(r?.error || '확장 프로그램과 연결되지 않았습니다. 확장 프로그램을 다시 불러오세요.');
+  if (!r?.ok) {const error=new Error(r?.error || '확장 프로그램과 연결되지 않았습니다. 확장 프로그램을 다시 불러오세요.');error.review=r?.review;throw error;}
   return r.data;
 }
 function bind(id, fn) {$(id).addEventListener('click',() => Promise.resolve().then(fn).catch(e => notify(e.message,true)));}
 function content() {
   if (imagesBusy) throw new Error('이미지를 보관 중입니다. 첨부 완료 후 실행하세요.');
-  return normalizeComposer({...Object.fromEntries(fields.map(id => [id,$(id).value])),images:attachments});
+  return normalizeComposer({...Object.fromEntries(fields.map(id => [id,$(id).value])),images:attachments,review:reviewInfo});
 }
 function load(c) {
   generationEpoch++;
   for (const id of fields) if (c[id] !== undefined) $(id).value = id === 'tags' ? c.tags.join(', ') : c[id];
   attachments=normalizeImages(c.images || []);void renderAttachments();
+  reviewInfo=c.review || null;
   changed = true;updateCount();updateKeyStatus();
 }
-function updateCount() {$('charCount').textContent = `${$('body').value.length.toLocaleString()}자`;}
+function updateCount() {$('charCount').textContent = `${$('body').value.length.toLocaleString()}자`;void renderReview();}
+async function renderReview() {
+  const epoch=++reviewEpoch;
+  let current=false;try{current=!!reviewInfo && await isReviewCurrent(content());}catch{}
+  if(epoch!==reviewEpoch)return;
+  $('reviewStatus').textContent=!reviewInfo ? '검수 전':reviewInfo.status==='blocked' ? '검수 미통과':!current ? '수정 후 재검수 필요':reviewInfo.changed ? '교정 후 통과':'검수 통과';
+  $('reviewSummary').textContent=reviewInfo ? `기준 제목: ${reviewInfo.title} · ${reviewInfo.summary}${!current && reviewInfo.status==='approved' ? ' · 이전 검수 결과이며 현재 수정본은 재검수가 필요합니다.':''}`:'AI 생성 후 자동 검수합니다. 직접 쓴 글도 이 버튼으로 검수하거나 네이버 작업 직전에 검수할 수 있습니다.';
+  $('reviewIssues').replaceChildren(...(reviewInfo?.issues || []).map(s=>node('li',s)));
+  $('reviewBefore').hidden=!reviewInfo?.originalBody;$('reviewOriginal').textContent=reviewInfo?.originalBody || '';
+}
 function panel(id) {
   document.querySelectorAll('.panel').forEach(p => {p.hidden = p.id !== id;});
   document.querySelectorAll('[data-panel]').forEach(b => b.classList.toggle('selected',b.dataset.panel===id));
@@ -40,6 +52,7 @@ function date(t) {return new Date(t).toLocaleString('ko-KR',{hour12:false});}
 function updateKeyStatus() {
   const p = $('provider').value;
   $('keyStatus').textContent = `${PROVIDERS[p].name} · ${state.keyStatus[p] ? '키 설정됨':'키 필요'}`;
+  void renderReview();
 }
 function renderJobs() {
   const root = $('jobs');root.replaceChildren();
@@ -55,6 +68,7 @@ function renderJobs() {
     head.append(title,node('span',STATES[j.status] || j.status,`state ${j.status}`));box.append(head);
     if (j.error) box.append(node('p',j.error,'error'));
     if (j.result) box.append(node('p',j.result.message));
+    if(j.content.review)box.append(node('p',`검수: ${j.content.review.summary}`));
     const actions = node('div','','job-actions');
     actions.append(btn('원고 불러오기',async () => {await replaceComposer(j.content);panel('write');}));
     if (j.status === 'queued' || RUNNING.includes(j.status)) actions.append(btn('작업 취소',async () => {await send('cancel',{id:j.id});await refresh();}));
@@ -81,7 +95,7 @@ function renderDrafts() {
   }
 }
 function filteredLogs() {
-  return state.logs.filter(l => ($('logView').value !== 'result' || ['DONE','STOP','RETRY','CANCEL'].includes(l.step))
+  return state.logs.filter(l => ($('logView').value !== 'result' || ['DONE','STOP','RETRY','CANCEL','REVIEW_PASS','REVIEW_FIXED','REVIEW_BLOCKED'].includes(l.step))
     && (!$('logLevel').value || l.level === $('logLevel').value)
     && `${l.message} ${l.step} ${l.jobId}`.toLowerCase().includes($('logSearch').value.toLowerCase()));
 }
@@ -116,7 +130,7 @@ async function loadModels() {
   } finally {$('loadModels').disabled = false;}
 }
 async function enqueue(schedule) {
-  if (generating) throw new Error('AI 생성이 끝난 뒤 작업을 등록하세요.');
+  if (generating) throw new Error('AI 작성·검수가 끝난 뒤 작업을 등록하세요.');
   await persist();const job = await send('enqueue',{content:content(),schedule});
   notify(`작업 등록 완료 · ${date(job.scheduledAt)}`);await refresh();panel('queue');
 }
@@ -130,6 +144,7 @@ async function imageUrl(ref,epoch=imageEpoch) {
   imageURLs.set(ref.id,url);return url;
 }
 async function renderAttachments() {
+  void renderReview();
   const epoch=++imageEpoch;
   for (const url of imageURLs.values()) URL.revokeObjectURL(url);imageURLs.clear();
   $('previewImages').replaceChildren();$('imageList').replaceChildren();$('imageCount').textContent=`${attachments.length} / 10장`;
@@ -221,21 +236,23 @@ bind('saveKey',async () => {
 });
 bind('forgetKey',async () => {await send('forget-key',{provider:$('provider').value});$('apiKey').value='';await refresh();notify('해당 제공자의 API 키를 삭제했습니다.');});
 bind('loadModels',loadModels);
-bind('generate',async () => {
+async function runAi(mode) {
   if (generating) return;
-  if ($('body').value) await send('draft',{content:content()});
-  const epoch = generationEpoch,c = content();generating=true;$('generate').disabled=true;$('generating').textContent='API 응답을 기다리고 있습니다…';
+  if (mode==='generate' && $('body').value) await send('draft',{content:content()});
+  const epoch = generationEpoch,c = content();generating=true;$('generate').disabled=true;$('reviewPost').disabled=true;$('generating').textContent=mode==='generate' ? '초안 작성 → 제목 기준 페르소나 검수·교정을 진행합니다…':'제목을 기준으로 본문을 검수·교정하고 있습니다…';
   try {
-    const result = await send('generate',{content:c});
+    const result = await send(mode,{content:c});
     if (epoch !== generationEpoch) {
-      await send('draft',{content:{...c,...result}});notify('생성 중 원고가 변경되어 결과를 임시저장했습니다.');
-    } else {load({...c,...result});await persist();notify('원고 생성 완료. 내용을 확인하고 수정하세요.');}
+      await send('draft',{content:{...c,...result}});notify('AI 작업 중 원고가 변경되어 검수 결과를 임시저장했습니다.');
+    } else {load({...c,...result});await persist();notify(result.review.changed ? '제목에 맞게 본문을 교정했습니다. 수정 이유를 확인하세요.':'제목·본문 일치 검수를 통과했습니다.');}
     await refresh();
-  } finally {generating=false;$('generate').disabled=false;$('generating').textContent='';}
-});
+  }catch(e){if(epoch===generationEpoch){reviewInfo=e.review || null;changed=true;await persist();void renderReview();}await refresh();throw new Error(e.message+' · 원고·임시저장 목록을 확인하세요.');}
+  finally {generating=false;$('generate').disabled=false;$('reviewPost').disabled=false;$('generating').textContent='';}
+}
+bind('generate',()=>runAi('generate'));bind('reviewPost',()=>runAi('review'));
 bind('saveDraft',async () => {await send('draft',{content:content()});await persist();await refresh();notify('로컬 임시저장 목록에 저장했습니다.');});
 bind('newPost',async () => {
-  await send('draft',{content:content()});load({...content(),title:'',body:'',tags:[],topic:'',keywords:'',images:[]});await persist();await refresh();notify('이전 원고를 저장하고 새 원고를 열었습니다.');
+  await send('draft',{content:content()});load({...content(),title:'',body:'',tags:[],topic:'',keywords:'',images:[],review:null});await persist();await refresh();notify('이전 원고를 저장하고 새 원고를 열었습니다.');
 });
 bind('previewBtn',async() => {
   const c=content(),layout=buildLayout(c);$('previewTitle').textContent=c.title;$('previewBody').replaceChildren();$('previewTags').textContent='';$('previewImages').replaceChildren();$('preview').showModal();

@@ -13,7 +13,7 @@ const executable=process.env.BLOG_TEST_BROWSER || 'C:/Program Files (x86)/Micros
 const child=spawn(executable,['--headless=new','--no-first-run','--no-default-browser-check',`--user-data-dir=${profile}`,
   '--remote-debugging-port=0',`--disable-extensions-except=${extension}`,`--load-extension=${extension}`,'about:blank'],{windowsHide:true,stdio:'ignore'});
 const sleep=ms=>new Promise(r=>setTimeout(r,ms));
-let browser,sw,ui,errors=[],passed=0,imagePayload;
+let browser,sw,ui,errors=[],passed=0,imagePayload,initialDraftCount=0;
 class CDP {
   constructor(ws){this.ws=ws;this.id=0;this.pending=new Map();this.events=[];
     ws.addEventListener('message',e=>{const m=JSON.parse(e.data);if(m.id){const p=this.pending.get(m.id);if(p){clearTimeout(p.timer);this.pending.delete(m.id);m.error?p.reject(new Error(m.error.message)):p.resolve(m.result);}}
@@ -51,9 +51,29 @@ try {
   await check('API 키 세션 보관·모델 조회·생성 mock',async()=>{
     const keyResult=await msg('key',{provider:'openai',key:'test-only-key',remember:false});
     assert.equal(keyResult?.ok,true,JSON.stringify(keyResult));
-    await sw.eval(`globalThis.fetch = async (url, options) => new Response(JSON.stringify(url.endsWith('/models') ? {data:[{id:'mock-text'}]} : {status:'completed',output:[{content:[{type:'output_text',text:JSON.stringify({title:'모의 생성 제목',body:'모의 생성 본문',tags:['영어']})}]}]}),{status:200});`);
+    function installFetchMock() {
+      globalThis.reviewMode='normal';globalThis.reviewCalls=0;globalThis.draftCalls=0;
+      globalThis.fetch=async(url,options)=>{
+        if(url.endsWith('/models'))return new Response(JSON.stringify({data:[{id:'mock-text'}]}),{status:200});
+        const prompt=JSON.parse(options.body).input;let result;
+        if(prompt.includes('작업: TITLE_BODY_REVIEW')) {
+          globalThis.reviewCalls++;
+          if(globalThis.transientReviewFailures>0){globalThis.transientReviewFailures--;return new Response(JSON.stringify({error:{message:'모의 일시적 검수 제한'}}),{status:429});}
+          const input=JSON.parse(prompt.slice(prompt.indexOf('검수 입력(JSON): ')+'검수 입력(JSON): '.length));
+          const mode=globalThis.reviewMode;if(mode==='delay')await new Promise(r=>setTimeout(r,700));
+          const changed=mode==='recipe' && input.body.includes('짜파게티');
+          result={title:input.title,body:changed ? '춘장과 채소로 짜장 소스를 만들어 면에 올립니다.':input.body,tags:input.tags,
+            approved:mode!=='blocked',checks:{titleMatch:mode!=='blocked',scopeMatch:mode!=='blocked',personaMatch:true},
+            issues:mode==='blocked' ? ['제목을 뒷받침할 자료 부족']:changed ? ['짜파게티 제품 조리법을 제목에 맞는 짜장면 조리 설명으로 수정']:[],
+            summary:mode==='blocked' ? '자료 부족으로 검수 중단':changed ? '제목과 다른 조리법 교정':'제목·본문 일치 검수 통과'};
+        }else{globalThis.draftCalls++;result={title:'모의 생성 제목',body:'모의 생성 본문',tags:['영어']};}
+        return new Response(JSON.stringify({status:'completed',output:[{content:[{type:'output_text',text:JSON.stringify(result)}]}]}),{status:200});
+      };
+    }
+    await sw.eval(`(${installFetchMock.toString()})()`);
     const models=await msg('models',{provider:'openai'});assert.equal(models.data[0].id,'mock-text');
-    const out=await msg('generate',{content:c});assert.equal(out.data.title,'모의 생성 제목');
+    const out=await msg('generate',{content:c});assert.equal(out.data.title,c.title);assert.equal(out.data.review.status,'approved');
+    assert.deepEqual(await sw.eval('[globalThis.draftCalls,globalThis.reviewCalls]'),[1,1]);initialDraftCount=(await msg('state')).data.drafts.length;
     assert.equal(await sw.eval('(async () => (await chrome.storage.local.get("apiKeys")).apiKeys?.openai || null)()'),null);
   });
   await check('원고 자동저장·미리보기 XSS 방지',async()=>{
@@ -73,17 +93,27 @@ try {
   await check('예약 재개·로컬 저장 단일 실행',async()=>{
     await msg('pause',{paused:false});await msg('tick');
     await waitUntil(async()=> (await msg('state')).data.jobs[0].status==='done');
-    const s=(await msg('state')).data;assert.equal(s.drafts.length,1);assert.ok(s.logs.some(l=>l.step==='DONE'));
+    const s=(await msg('state')).data;assert.equal(s.drafts.length,initialDraftCount+1);assert.ok(s.logs.some(l=>l.step==='DONE'));
   });
   await check('예약 취소 후 실행 안 함',async()=>{
     const r=await msg('enqueue',{content:{...c,title:'취소할 글'},schedule:{mode:'delay',seconds:2}});
     await msg('cancel',{id:r.data.id});await sleep(2100);await msg('tick');
-    const s=(await msg('state')).data;assert.equal(s.jobs.find(j=>j.id===r.data.id).status,'cancelled');assert.equal(s.drafts.length,1);
+    const s=(await msg('state')).data;assert.equal(s.jobs.find(j=>j.id===r.data.id).status,'cancelled');assert.equal(s.drafts.length,initialDraftCount+1);
   });
   await check('생성 예약 실행 및 작업 결과 보존',async()=>{
     const r=await msg('enqueue',{content:{...c,title:'',body:'',topic:'생성 예약 테스트'}});
     await waitUntil(async()=> (await msg('state')).data.jobs.find(j=>j.id===r.data.id)?.status==='done');
     const s=(await msg('state')).data;assert.equal(s.jobs.find(j=>j.id===r.data.id).content.title,'모의 생성 제목');
+  });
+  await check('생성 후 검수 API 재시도에서도 검수를 건너뛰지 않음',async()=>{
+    await sw.eval(`globalThis.transientReviewFailures=1`);
+    const before=await sw.eval('globalThis.reviewCalls');
+    const r=await msg('enqueue',{content:{...c,title:'검수 재시도 원고',body:''}});
+    await waitUntil(async()=>{const j=(await msg('state')).data.jobs.find(j=>j.id===r.data.id);return j?.status==='queued' && j.attempts===1;});
+    await sw.eval(`(async()=>{const data=await chrome.storage.local.get('postingStudio');data.postingStudio.jobs.find(j=>j.id===${JSON.stringify(r.data.id)}).scheduledAt=Date.now();await chrome.storage.local.set(data)})()`);
+    await msg('tick');await waitUntil(async()=> (await msg('state')).data.jobs.find(j=>j.id===r.data.id)?.status==='done');
+    assert.equal(await sw.eval('globalThis.reviewCalls'),before+2);
+    assert.equal((await msg('state')).data.jobs.find(j=>j.id===r.data.id).content.review.status,'approved');
   });
   await check('백업 키 제외·가져온 예약 자동 실행 금지',async()=>{
     const backup=(await msg('backup')).data;assert.ok(!JSON.stringify(backup).includes('test-only-key'));
@@ -100,6 +130,27 @@ try {
     await ui.call('Emulation.setDeviceMetricsOverride',{width:600,height:1000,deviceScaleFactor:1,mobile:false});
     await ui.eval('document.querySelector("[data-panel=write]").click()');
     assert.ok(await ui.eval('document.documentElement.scrollWidth <= innerWidth'));
+  });
+  await check('제목 고정·페르소나 교정 UI·수정 이유·원문 보존',async()=>{
+    await sw.eval(`globalThis.reviewMode='recipe'`);
+    const recipe={...c,title:'짜장면 레시피',body:'짜파게티 스프를 넣습니다.',persona:'친절한 요리 설명자'};
+    await ui.eval(`Object.entries(${JSON.stringify(recipe)}).forEach(([id,value])=>{const input=document.getElementById(id);if(input){input.value=value;input.dispatchEvent(new Event('input'))}});document.getElementById('reviewPost').click()`);
+    await waitUntil(()=>ui.eval(`document.getElementById('reviewStatus').textContent==='교정 후 통과'`));
+    assert.equal(await ui.eval(`document.getElementById('title').value`),'짜장면 레시피');
+    assert.ok(await ui.eval(`document.getElementById('body').value.includes('춘장') && document.getElementById('reviewOriginal').textContent.includes('짜파게티') && document.getElementById('reviewIssues').textContent.includes('수정')`));
+    assert.ok((await msg('state')).data.logs.some(l=>l.step==='REVIEW_FIXED'));
+  });
+  await check('본문 수정 시 검수 무효화 표시',async()=>{
+    await ui.eval(`document.getElementById('body').value+=' 추가';document.getElementById('body').dispatchEvent(new Event('input'))`);
+    await waitUntil(()=>ui.eval(`document.getElementById('reviewStatus').textContent==='수정 후 재검수 필요'`));
+  });
+  await check('검수 중 직접 수정한 원고를 결과가 덮어쓰지 않음',async()=>{
+    await sw.eval(`globalThis.reviewMode='delay'`);
+    await ui.eval(`document.getElementById('reviewPost').click()`);await sleep(100);
+    await ui.eval(`document.getElementById('body').value='사용자가 직접 수정한 원고';document.getElementById('body').dispatchEvent(new Event('input'))`);
+    await waitUntil(()=>ui.eval(`!document.getElementById('reviewPost').disabled`));
+    assert.equal(await ui.eval(`document.getElementById('body').value`),'사용자가 직접 수정한 원고');
+    await sw.eval(`globalThis.reviewMode='normal'`);
   });
   await ui.eval(`globalThis.imageTest=import(chrome.runtime.getURL('images.js'));globalThis.pngData=(()=>{const c=document.createElement('canvas');c.width=2;c.height=2;const ctx=c.getContext('2d');ctx.fillStyle='red';ctx.fillRect(0,0,2,2);return c.toDataURL('image/png').split(',')[1]})();`);
   const png=await ui.eval('globalThis.pngData');
@@ -172,6 +223,23 @@ try {
     const r=await msg('enqueue',{content:{...c,title:'사진 실패 발행 차단 테스트',action:'publish',blogId:'testblog',images:imageJob.content.images}});
     await msg('tick');await waitUntil(async()=> (await msg('state')).data.jobs.find(j=>j.id===r.data.id)?.status==='needs_review');
     assert.equal(await sw.eval('globalThis.finalSends'),0);
+  });
+  await check('검수 미통과 원고는 편집기를 열거나 발행하지 않음',async()=>{
+    await sw.eval(`globalThis.reviewMode='blocked';globalThis.finalSends=0;globalThis.createdReviewTabs=0;chrome.tabs.create=async()=>{globalThis.createdReviewTabs++;return {id:98765}};`);
+    const r=await msg('enqueue',{content:{...c,title:'근거 부족 제목',action:'publish',blogId:'testblog'}});await msg('tick');
+    await waitUntil(async()=> (await msg('state')).data.jobs.find(j=>j.id===r.data.id)?.status==='failed');
+    assert.equal(await sw.eval('globalThis.createdReviewTabs'),0);assert.equal(await sw.eval('globalThis.finalSends'),0);
+    const j=(await msg('state')).data.jobs.find(j=>j.id===r.data.id);assert.equal(j.content.review.status,'blocked');
+    assert.ok((await msg('state')).data.drafts.some(d=>d.content.title==='근거 부족 제목' && d.content.body===c.body));
+    await sw.eval(`globalThis.reviewMode='normal';globalThis.imageAdapterMode='ok'`);
+  });
+  await check('통과한 원고는 검수 재사용, 제목이 바뀌면 재검수',async()=>{
+    const source={...c,title:'재사용 검수 제목'},checked=(await msg('review',{content:source})).data;
+    const before=await sw.eval('globalThis.reviewCalls');
+    const r=await msg('enqueue',{content:{...source,...checked,action:'draft',blogId:'testblog'}});await msg('tick');
+    await waitUntil(async()=> (await msg('state')).data.jobs.find(j=>j.id===r.data.id)?.status==='done');assert.equal(await sw.eval('globalThis.reviewCalls'),before);
+    const changed=await msg('enqueue',{content:{...source,...checked,title:'수정한 검수 제목',action:'draft',blogId:'testblog'}});await msg('tick');
+    await waitUntil(async()=> (await msg('state')).data.jobs.find(j=>j.id===changed.data.id)?.status==='done');assert.equal(await sw.eval('globalThis.reviewCalls'),before+1);
   });
   await sw.eval(`chrome.tabs.create=globalThis.realPostingApis.create;chrome.tabs.get=globalThis.realPostingApis.get;chrome.scripting.executeScript=globalThis.realPostingApis.execute;delete globalThis.realPostingApis;`);
   await ui.call('Emulation.setDeviceMetricsOverride',{width:1440,height:1120,deviceScaleFactor:1,mobile:false});

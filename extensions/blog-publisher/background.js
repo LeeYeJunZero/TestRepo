@@ -1,8 +1,9 @@
 import {ACTIONS, RUNNING, PROVIDERS, normalizeComposer, validateComposer, dueTime, fingerprint, recoverJobs, publicBackup, importDrafts, redact} from './core.js';
-import {generate, listModels} from './api.js';
+import {generate, review, listModels} from './api.js';
 import {naverEditor, publishedUrl} from './naver.js';
 import {ensureImages, imagePayload, referencedImages, pruneImages} from './images.js';
 import {buildLayout} from './layout.js';
+import {isReviewCurrent} from './review.js';
 
 const DB = 'postingStudio';
 const empty = () => ({composer:{},drafts:[],jobs:[],logs:[],settings:{},paused:false});
@@ -32,6 +33,20 @@ async function getKey(provider) {
 }
 async function updateJob(id, patch) {
   return mutate(s => {const j = s.jobs.find(j => j.id === id); if (j) Object.assign(j,patch,{updatedAt:Date.now()});});
+}
+async function inspectPost(c,signal,jobId='') {
+  await saveDraft({...c,review:null});
+  await log('info','REVIEW_START',`${PROVIDERS[c.provider].name} / ${c.model} · 기준 제목: ${c.title}`,jobId);
+  try {
+    const result=await review(c,await getKey(c.provider),signal);
+    await log(result.review.changed ? 'warn':'success',result.review.changed ? 'REVIEW_FIXED':'REVIEW_PASS',result.review.summary,jobId);
+    for(const issue of result.review.issues)await log('info','REVIEW_NOTE',issue,jobId);
+    return result;
+  }catch(e){
+    await log('error','REVIEW_BLOCKED',e.message,jobId);
+    for(const issue of e.review?.issues || [])await log('warn','REVIEW_NOTE',issue,jobId);
+    throw e;
+  }
 }
 async function alive(id) {
   const s = await read();
@@ -154,11 +169,19 @@ async function run(job) {
       await log('info','API',`${PROVIDERS[job.content.provider].name} / ${job.content.model} 생성 요청`,job.id);
       const key = await getKey(job.content.provider);
       const generated = await generate(job.content,key,active.controller.signal);
-      job.content = {...job.content,...generated};
-      await updateJob(job.id,{content:job.content});
+      job.content = {...job.content,...generated,review:null};job.requiresReview=true;
+      await updateJob(job.id,{content:job.content,requiresReview:true});
       await log('info','GENERATE',`제목·본문 ${generated.body.length}자 생성 완료`,job.id);
     }
     await alive(job.id);
+    if(job.requiresReview || job.content.action!=='local') {
+      if(!await isReviewCurrent(job.content)) {
+        await updateJob(job.id,{status:'reviewing'});
+        const checked=await inspectPost(job.content,active.controller.signal,job.id);
+        await alive(job.id);job.content={...job.content,...checked};
+        await updateJob(job.id,{content:job.content});
+      } else await log('info','REVIEW_PASS','현재 원고와 일치하는 제목 기준 검수 결과를 사용합니다.',job.id);
+    }
     validateComposer(job.content);
     const generatedFp = await fingerprint(job.content);
     await mutate(s => {
@@ -183,7 +206,7 @@ async function run(job) {
     const retry = !opened && !cancelled && e.retryable && attempts < 3;
     const status = retry ? 'queued' : opened ? 'needs_review' : cancelled ? 'cancelled' : 'failed';
     const message = redact(e.message,[await getKey(job.content.provider)]);
-    await updateJob(job.id,{status,error:message,attempts,...(retry ? {scheduledAt:Date.now()+attempts*30000}: {})});
+    await updateJob(job.id,{status,error:message,attempts,...(e.review ? {content:{...current.content,review:e.review}}:{}),...(retry ? {scheduledAt:Date.now()+attempts*30000}: {})});
     await log(retry ? 'warn':'error',retry ? 'RETRY':'STOP',`${message}${retry ? ` · ${attempts*30}초 후 API 재시도` : ''}`,job.id);
   } finally {clearInterval(keepAlive);active = null;}
 }
@@ -252,9 +275,14 @@ async function dispatch(m) {
       await log('info','API',`${PROVIDERS[c.provider].name} / ${c.model} 미리보기 생성 요청`);
       const hold = setInterval(() => chrome.runtime.getPlatformInfo().catch(() => {}),20000);
       try {
-        const result = await generate(c,await getKey(c.provider));
-        await log('success','GENERATE',`미리보기 ${result.body.length}자 생성 완료`);return result;
+        const draft = await generate(c,await getKey(c.provider));
+        await log('info','GENERATE',`초안 ${draft.body.length}자 작성 완료 · 제목 기준 검수를 시작합니다.`);
+        return await inspectPost({...c,...draft,review:null});
       } finally {clearInterval(hold);}
+    }
+    case 'review': {
+      const c=normalizeComposer(m.content),hold=setInterval(()=>chrome.runtime.getPlatformInfo().catch(()=>{}),20000);
+      try {return await inspectPost(c);}finally{clearInterval(hold);}
     }
     case 'enqueue': {
       const content = normalizeComposer(m.content);
@@ -318,7 +346,7 @@ chrome.runtime.onMessage.addListener((m,sender,reply) => {
   if (sender.id !== chrome.runtime.id || sender.url?.split('?')[0] !== chrome.runtime.getURL('dashboard.html')) return false;
   dispatch(m).then(data => reply({ok:true,data}), async e => {
     const msg = redact(e.message);
-    await log('error','REQUEST',msg).catch(() => {});reply({ok:false,error:msg});
+    await log('error','REQUEST',msg).catch(() => {});reply({ok:false,error:msg,...(e.review ? {review:e.review}:{})});
   });return true;
 });
 chrome.action.onClicked.addListener(async () => {

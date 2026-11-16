@@ -1,10 +1,11 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import {normalizeComposer, normalizePost, parseGenerated, durationMs, dueTime, redact, recoverJobs, publicBackup, importDrafts, fingerprint, buildPrompt, validateComposer} from '../extensions/blog-publisher/core.js';
-import {listModels, generate} from '../extensions/blog-publisher/api.js';
+import {listModels, generate, review} from '../extensions/blog-publisher/api.js';
 import {publishedUrl} from '../extensions/blog-publisher/naver.js';
 import {imageType, inspectImage, normalizeImages, MAX_IMAGE_BYTES} from '../extensions/blog-publisher/images.js';
 import {buildLayout, insertMarkerAt} from '../extensions/blog-publisher/layout.js';
+import {parseReviewReply, reviewSignature, isReviewCurrent, buildReviewPrompt} from '../extensions/blog-publisher/review.js';
 
 const c = normalizeComposer({provider:'openai',model:'text-model',keywords:'대원외고 영어',topic:'구문 분석',persona:'친절한 학습 코치',title:'제목',body:'본문',tags:['영어']});
 const response = data => new Response(JSON.stringify(data),{status:200,headers:{'Content-Type':'application/json'}});
@@ -56,7 +57,7 @@ test('BP-08 OpenAI 모델 목록과 Responses 요청',async () => {
   const out=await generate(c,'test-key',null,async (url,options) => {
     assert.ok(url.endsWith('/responses'));const body=JSON.parse(options.body);assert.equal(body.store,false);assert.equal(body.model,c.model);
     return response({status:'completed',output:[{content:[{type:'output_text',text:JSON.stringify({title:'AI 제목',body:'AI 본문'})}]}],usage:{output_tokens:25}});
-  });assert.equal(out.title,'AI 제목');assert.equal(out.usage.output_tokens,25);
+  });assert.equal(out.title,c.title);assert.equal(out.usage.output_tokens,25);
 });
 test('BP-09 Claude 페이지 처리와 메시지 요청',async () => {
   let page=0;
@@ -64,7 +65,7 @@ test('BP-09 Claude 페이지 처리와 메시지 요청',async () => {
     assert.equal(options.headers['x-api-key'],'test-key');page++;
     return response(page===1 ? {data:[{id:'claude-a'}],has_more:true,last_id:'claude-a'}:{data:[{id:'claude-b'}],has_more:false});
   });assert.equal(models.length,2);
-  const out=await generate({...c,provider:'anthropic'},'test-key',null,async (url,options)=>{
+  const out=await generate({...c,provider:'anthropic',title:''},'test-key',null,async (url,options)=>{
     assert.ok(url.endsWith('/messages'));assert.equal(JSON.parse(options.body).messages[0].role,'user');
     return response({content:[{type:'text',text:'{"title":"클로드","body":"본문"}'}]});
   });assert.equal(out.title,'클로드');
@@ -74,7 +75,7 @@ test('BP-10 Gemini 생성 지원 모델 필터와 키 헤더',async () => {
     assert.ok(!url.includes('test-key'));assert.equal(options.headers['x-goog-api-key'],'test-key');
     return response({models:[{name:'models/gemini-text',supportedGenerationMethods:['generateContent']},{name:'models/embed',supportedGenerationMethods:['embedContent']}]});
   });assert.deepEqual(models.map(m=>m.id),['gemini-text']);
-  const out=await generate({...c,provider:'gemini',model:'gemini-text'},'test-key',null,async(url,options)=>{
+  const out=await generate({...c,provider:'gemini',model:'gemini-text',title:''},'test-key',null,async(url,options)=>{
     assert.ok(url.endsWith('/models/gemini-text:generateContent'));
     assert.equal(JSON.parse(options.body).generationConfig.responseMimeType,'application/json');
     return response({candidates:[{content:{parts:[{thought:true,text:'private reasoning'},{text:'{"title":"제미나이","body":"본문"}'}]}}]});
@@ -154,4 +155,47 @@ test('BP-20 본문 순서·끝 첨부·백업·중복 판정에 위치 반영',a
   const restored=importDrafts(publicBackup({composer:post,drafts:[],jobs:[]}));assert.equal(restored[0].content.images[0].marker,'1');
   assert.ok(buildPrompt(post).includes('[[FI2]]'));
   assert.notEqual(await fingerprint(post),await fingerprint({...post,images:[{...fi,marker:'3'},tail,second]}));
+});
+const checkedReply=(input,extra={})=>({title:input.title,body:input.body,tags:input.tags,approved:true,
+  checks:{titleMatch:true,scopeMatch:true,personaMatch:true},issues:[],summary:'제목과 본문 일치',...extra});
+test('BP-21 제목을 고정하고 주제 이탈 원고를 교정하는 별도 API 요청',async()=>{
+  const input=normalizeComposer({...c,title:'짜장면 레시피',body:'짜파게티 봉지의 스프를 넣습니다.',persona:'친절한 요리 설명자',topic:'짜파게티'});
+  const out=await review(input,'test-key',null,async(url,options)=>{
+    const prompt=JSON.parse(options.body).input;
+    assert.ok(prompt.includes('TITLE_BODY_REVIEW'));assert.ok(prompt.includes('짜장면 레시피'));assert.ok(prompt.includes('친절한 요리 설명자'));
+    return response({output:[{content:[{type:'output_text',text:JSON.stringify(checkedReply(input,{body:'춘장과 채소로 소스를 만들어 면에 올립니다.',issues:['인스턴트 제품 조리법을 제목이 요구하는 짜장면 조리 내용으로 수정'],summary:'주제 이탈 교정'}))}]}]});
+  });
+  assert.equal(out.title,input.title);assert.ok(!out.body.includes('짜파게티'));assert.equal(out.review.changed,true);
+  assert.equal(out.review.originalBody,input.body);assert.equal(await isReviewCurrent({...input,...out}),true);
+});
+test('BP-22 제목 변경·불승인·불완전 판정을 통과로 처리하지 않음',async()=>{
+  for(const change of [{title:'다른 제목'},{approved:false},{checks:{titleMatch:false,scopeMatch:true,personaMatch:true}},{checks:{titleMatch:'true',scopeMatch:true,personaMatch:true}},{body:''}])
+    await assert.rejects(()=>parseReviewReply(JSON.stringify(checkedReply(c,change)),c));
+});
+test('BP-23 검수 전후 이미지 표시·순서 보존',async()=>{
+  const second={...fi,id:'b'.repeat(64),marker:'2'};
+  const input={...c,body:'A[[1]]B[[2]]C',images:[fi,second]};
+  for(const body of ['A[[1]]BC','A[[2]]B[[1]]C','A[[1]]B[[2]]C[[3]]'])
+    await assert.rejects(()=>parseReviewReply(JSON.stringify(checkedReply(input,{body,issues:['내용 수정']})),input),/삽입 표시/);
+  const out=await parseReviewReply(JSON.stringify(checkedReply(input,{body:'교정 A[[1]]교정 B[[2]]C',issues:['제목에 맞춰 설명 수정']})),input);
+  assert.equal(out.review.status,'approved');
+});
+test('BP-24 제목·본문·페르소나 변경 시 재검수, 발행 방식 변경은 재사용',async()=>{
+  const out=await parseReviewReply(JSON.stringify(checkedReply(c)),c),approved={...c,...out};
+  for(const change of [{title:'수정 제목'},{body:'수정 본문'},{persona:'다른 사람'},{references:'새 자료'},{model:'다른 모델'}])
+    assert.equal(await isReviewCurrent({...approved,...change}),false);
+  assert.equal(await isReviewCurrent({...approved,action:'draft',blogId:'anotherblog'}),true);
+  assert.equal(out.review.signature,await reviewSignature(approved));
+});
+test('BP-25 가져온 원고는 승인 기록을 재사용하지 않으며 검수 중 재시작은 정지',async()=>{
+  const out=await parseReviewReply(JSON.stringify(checkedReply(c)),c);
+  const restored=importDrafts(publicBackup({composer:{...c,...out},drafts:[],jobs:[]}));
+  assert.equal(restored[0].content.review,null);
+  assert.equal(recoverJobs([{status:'reviewing'}])[0].status,'needs_review');
+});
+test('BP-26 수정 이유 없는 교정·잘못된 JSON은 거부',async()=>{
+  await assert.rejects(()=>parseReviewReply(JSON.stringify(checkedReply(c,{body:'새 본문'})),c),/수정 이유/);
+  await assert.rejects(()=>parseReviewReply(JSON.stringify(checkedReply(c,{body:'새 본문',issues:[{}]})),c),/수정 이유/);
+  await assert.rejects(()=>parseReviewReply('not-json',c),/JSON/);
+  assert.ok(buildReviewPrompt(c).includes('제목을 본문에 맞춰 바꾸지 말고'));
 });
