@@ -233,8 +233,12 @@ async function saveDraft(raw) {
   });
 }
 async function dispatch(m) {
+  if(m.clientVersion!==chrome.runtime.getManifest().version) {
+    const e=new Error('대시보드와 백그라운드 버전이 다릅니다. 확장을 새로고침하고 기존 대시보드를 닫아 다시 여세요.');e.code='VERSION_MISMATCH';throw e;
+  }
   await boot;
   switch (m.cmd) {
+    case 'hello': return true;
     case 'state': {
       const s = await read();
       s.keyStatus = Object.fromEntries(await Promise.all(Object.keys(PROVIDERS).map(async p => [p,!!await getKey(p)])));
@@ -344,9 +348,9 @@ async function dispatch(m) {
 }
 chrome.runtime.onMessage.addListener((m,sender,reply) => {
   if (sender.id !== chrome.runtime.id || sender.url?.split('?')[0] !== chrome.runtime.getURL('dashboard.html')) return false;
-  dispatch(m).then(data => reply({ok:true,data}), async e => {
+  dispatch(m).then(data => reply({ok:true,data,version:chrome.runtime.getManifest().version}), async e => {
     const msg = redact(e.message);
-    await log('error','REQUEST',msg).catch(() => {});reply({ok:false,error:msg,...(e.review ? {review:e.review}:{})});
+    await log('error','REQUEST',msg).catch(() => {});reply({ok:false,error:msg,code:e.code || 'OPERATION_FAILED',version:chrome.runtime.getManifest().version,...(e.review ? {review:e.review}:{})});
   });return true;
 });
 chrome.action.onClicked.addListener(async () => {

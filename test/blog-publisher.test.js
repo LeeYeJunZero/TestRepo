@@ -6,6 +6,8 @@ import {publishedUrl} from '../extensions/blog-publisher/naver.js';
 import {imageType, inspectImage, normalizeImages, MAX_IMAGE_BYTES} from '../extensions/blog-publisher/images.js';
 import {buildLayout, insertMarkerAt} from '../extensions/blog-publisher/layout.js';
 import {parseReviewReply, reviewSignature, isReviewCurrent, buildReviewPrompt} from '../extensions/blog-publisher/review.js';
+import {CLIENT_VERSION, requestMessage} from '../extensions/blog-publisher/client.js';
+import {readFile} from 'node:fs/promises';
 
 const c = normalizeComposer({provider:'openai',model:'text-model',keywords:'대원외고 영어',topic:'구문 분석',persona:'친절한 학습 코치',title:'제목',body:'본문',tags:['영어']});
 const response = data => new Response(JSON.stringify(data),{status:200,headers:{'Content-Type':'application/json'}});
@@ -198,4 +200,30 @@ test('BP-26 수정 이유 없는 교정·잘못된 JSON은 거부',async()=>{
   await assert.rejects(()=>parseReviewReply(JSON.stringify(checkedReply(c,{body:'새 본문',issues:[{}]})),c),/수정 이유/);
   await assert.rejects(()=>parseReviewReply('not-json',c),/JSON/);
   assert.ok(buildReviewPrompt(c).includes('제목을 본문에 맞춰 바꾸지 말고'));
+});
+test('BP-27 확장 연결 끊김·백그라운드 없음은 사용자 안내로 구분',async()=>{
+  await assert.rejects(()=>requestMessage('key',{key:'secret-key'},{}),e=>e.code==='CONTEXT_INVALID');
+  for(const [message,code] of [['Extension context invalidated.','CONTEXT_INVALID'],['Could not establish connection. Receiving end does not exist.','WORKER_UNAVAILABLE']]) {
+    let calls=0;
+    await assert.rejects(()=>requestMessage('key',{key:'secret-key'},{id:'test',sendMessage:async()=>{calls++;throw new Error(message);}}),e=>e.code===code && !e.message.includes('secret-key'));
+    assert.equal(calls,1);
+  }
+});
+test('BP-28 무응답·구버전 응답은 성공으로 처리하지 않음',async()=>{
+  for(const [response,code] of [[undefined,'NO_RESPONSE'],[{ok:true,data:true},'VERSION_MISMATCH'],[{ok:true,data:true,version:'1.1.0'},'VERSION_MISMATCH']])
+    await assert.rejects(()=>requestMessage('state',{}, {id:'test',sendMessage:async()=>response}),e=>e.code===code);
+});
+test('BP-29 메시지 버전·작업 실패·검수 보고서를 유지하고 키를 가림',async()=>{
+  const value=await requestMessage('state',{}, {id:'test',sendMessage:async m=>{assert.equal(m.clientVersion,CLIENT_VERSION);return {ok:true,data:42,version:CLIENT_VERSION};}});
+  assert.equal(value,42);
+  await assert.rejects(()=>requestMessage('key',{key:'private-api-token'},{id:'test',sendMessage:async m=>m.cmd==='hello' ? {ok:true,data:true,version:CLIENT_VERSION}:({ok:false,error:'bad private-api-token',code:'OPERATION_FAILED',version:CLIENT_VERSION,review:{status:'blocked'}})}),e=>e.code==='OPERATION_FAILED' && !e.message.includes('private-api-token') && e.review.status==='blocked');
+});
+test('BP-30 배포 manifest와 화면 통신 버전 일치',async()=>{
+  const manifest=JSON.parse(await readFile(new URL('../extensions/blog-publisher/manifest.json',import.meta.url),'utf8'));
+  assert.equal(manifest.version,CLIENT_VERSION);
+});
+test('BP-31 구버전 워커에는 키 저장·게시 요청을 보내기 전에 중단',async()=>{
+  const calls=[];
+  await assert.rejects(()=>requestMessage('enqueue',{content:c},{id:'test',sendMessage:async m=>{calls.push(m.cmd);return {ok:true,data:true};}}),e=>e.code==='VERSION_MISMATCH');
+  assert.deepEqual(calls,['hello']);
 });

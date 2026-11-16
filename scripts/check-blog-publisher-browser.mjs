@@ -8,6 +8,7 @@ import {buildLayout} from '../extensions/blog-publisher/layout.js';
 
 // Fresh test profile only. No user cookies, API keys, or live Naver posting.
 const root=process.cwd(),extension=path.join(root,'extensions/blog-publisher');
+const clientVersion=JSON.parse(await readFile(path.join(extension,'manifest.json'),'utf8')).version;
 const profile=await mkdtemp(path.join(tmpdir(),'posting-studio-test-'));
 const executable=process.env.BLOG_TEST_BROWSER || 'C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe';
 const child=spawn(executable,['--headless=new','--no-first-run','--no-default-browser-check',`--user-data-dir=${profile}`,
@@ -28,7 +29,7 @@ let port;
 const targets=()=>fetch(`http://127.0.0.1:${port}/json/list`).then(r=>r.json());
 async function check(name,fn){await fn();passed++;console.log('PASS '+name);}
 async function waitUntil(fn,ms=15000){const start=Date.now();while(Date.now()-start<ms){const v=await fn();if(v)return v;await sleep(100);}throw new Error('Condition timed out');}
-const msg=(cmd,values={})=>ui.eval(`chrome.runtime.sendMessage(${JSON.stringify({cmd,...values})})`);
+const msg=(cmd,values={})=>ui.eval(`chrome.runtime.sendMessage(${JSON.stringify({cmd,...values,clientVersion})})`);
 const c={provider:'openai',model:'mock-text',keywords:'영어',topic:'독해',persona:'학습 코치',audience:'학부모',length:1000,title:'테스트 제목',body:'확인할 본문입니다.\n\n두 번째 문단',tags:['영어'],action:'local'};
 try {
   const info=await waitUntil(async()=>{try{return await readFile(path.join(profile,'DevToolsActivePort'),'utf8');}catch{return null;}});
@@ -75,6 +76,21 @@ try {
     const out=await msg('generate',{content:c});assert.equal(out.data.title,c.title);assert.equal(out.data.review.status,'approved');
     assert.deepEqual(await sw.eval('[globalThis.draftCalls,globalThis.reviewCalls]'),[1,1]);initialDraftCount=(await msg('state')).data.drafts.length;
     assert.equal(await sw.eval('(async () => (await chrome.storage.local.get("apiKeys")).apiKeys?.openai || null)()'),null);
+  });
+  await check('실제 키 적용 버튼·모델 조회가 현재 버전에서 동작',async()=>{
+    await ui.eval(`document.getElementById('apiKey').value='test-only-key';document.getElementById('saveKey').click()`);
+    await waitUntil(()=>ui.eval(`document.getElementById('apiKey').value==='' && document.getElementById('models').options.length===2`));
+    assert.ok(await ui.eval(`document.getElementById('keyStatus').textContent.includes('키 설정됨')`));
+  });
+  await check('이전 화면 버전의 키 변경 요청을 거부',async()=>{
+    const r=await ui.eval(`chrome.runtime.sendMessage({cmd:'key',provider:'openai',key:'must-not-save',clientVersion:'1.1.0'})`);
+    assert.equal(r.ok,false);assert.equal(r.code,'VERSION_MISMATCH');
+    assert.equal(await sw.eval(`(async()=>(await chrome.storage.session.get('apiKeys')).apiKeys.openai)()`),'test-only-key');
+  });
+  await check('키 적용 중 연결 끊김은 화면 안내로 처리',async()=>{
+    await ui.eval(`globalThis.originalStudioSend=chrome.runtime.sendMessage;chrome.runtime.sendMessage=()=>{throw new Error('Extension context invalidated.')};document.getElementById('apiKey').value='test-only-key';document.getElementById('saveKey').click()`);
+    await waitUntil(()=>ui.eval(`document.getElementById('notice').textContent.includes('확장 연결이 끊겼습니다')`));
+    await ui.eval(`chrome.runtime.sendMessage=globalThis.originalStudioSend;delete globalThis.originalStudioSend;document.getElementById('apiKey').value=''`);
   });
   await check('원고 자동저장·미리보기 XSS 방지',async()=>{
     await ui.eval(`document.getElementById('title').value='<img src=x onerror=alert(1)>';document.getElementById('body').value='본문';document.getElementById('autoS').value='1';document.getElementById('body').dispatchEvent(new Event('input',{bubbles:true}));`);

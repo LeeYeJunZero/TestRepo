@@ -2,6 +2,7 @@ import {ACTIONS, STATES, RUNNING, PROVIDERS, normalizeComposer, durationMs, dueT
 import {normalizeImages, normalizeMarker, storeImage, getImage, exportImages, importImages, referencedImages} from './images.js';
 import {buildLayout, insertMarkerAt, markerToken} from './layout.js';
 import {isReviewCurrent} from './review.js';
+import {requestMessage} from './client.js';
 const $ = id => document.getElementById(id);
 let state = {jobs:[],drafts:[],logs:[],keyStatus:{}}, changed = false, lastAuto = Date.now(), fetching = false;
 let generating = false, generationEpoch = 0, timerNotice;
@@ -14,9 +15,7 @@ function notify(msg,error=false) {
   clearTimeout(timerNotice);timerNotice = setTimeout(() => {$('notice').hidden = true;},error ? 15000:7000);
 }
 async function send(cmd, values={}) {
-  const r = await chrome.runtime.sendMessage({cmd,...values});
-  if (!r?.ok) {const error=new Error(r?.error || '확장 프로그램과 연결되지 않았습니다. 확장 프로그램을 다시 불러오세요.');error.review=r?.review;throw error;}
-  return r.data;
+  return requestMessage(cmd,values);
 }
 function bind(id, fn) {$(id).addEventListener('click',() => Promise.resolve().then(fn).catch(e => notify(e.message,true)));}
 function content() {
@@ -288,9 +287,9 @@ bind('exportLogs',() => {
 });
 bind('clearLogs',async () => {await send('clear-logs');await refresh();});
 const preferenceIds=['autoSave','autoH','autoM','autoS'];
-for (const id of preferenceIds) $(id).addEventListener('change',() => {
+for (const id of preferenceIds) $(id).addEventListener('change',async () => {
   const prefs={autoSave:$('autoSave').checked,autoH:$('autoH').value,autoM:$('autoM').value,autoS:$('autoS').value};
-  chrome.storage.local.set({studioPrefs:prefs});
+  try{await chrome.storage.local.set({studioPrefs:prefs});}catch(e){notify('자동저장 설정 보관 실패: '+e.message,true);}
 });
 async function init() {
   await refresh();
