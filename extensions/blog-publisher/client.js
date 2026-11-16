@@ -1,6 +1,17 @@
 import {redact} from './core.js';
 
-export const CLIENT_VERSION='1.3.2';
+export const CLIENT_VERSION='1.3.3';
+export async function openDashboard(browser=globalThis.chrome) {
+  const base=browser.runtime.getURL('dashboard.html');
+  const url=`${base}?v=${encodeURIComponent(browser.runtime.getManifest().version)}`;
+  const tabs=await browser.tabs.query({url:`${base}*`});
+  const current=tabs.find(tab=>(tab.pendingUrl || tab.url)?.split('#')[0]===url);
+  // Preserve unsaved input in old-version tabs instead of reusing or reloading them.
+  if(!current)return browser.tabs.create({url});
+  await browser.tabs.update(current.id,{active:true});
+  await browser.windows.update(current.windowId,{focused:true});
+  return current;
+}
 export class StudioError extends Error {
   constructor(message,code,review){super(message);this.code=code;this.review=review;}
 }

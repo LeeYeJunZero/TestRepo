@@ -53,6 +53,17 @@ try {
   await ui.call('Emulation.setDeviceMetricsOverride',{width:1440,height:1120,deviceScaleFactor:1,mobile:false});
   await waitUntil(()=>ui.eval('document.getElementById("timeZone")?.textContent'));
   await check('확장 로드·전체 화면 대시보드',async()=>assert.equal(await ui.eval('document.querySelector("h1").textContent'),'블로그 포스팅 스튜디오'));
+  await check('구버전 탭의 미저장 원고를 보존하고 새 버전 탭만 재사용',async()=>{
+    await ui.eval(`document.getElementById('body').value='이전 탭의 미저장 원고'`);
+    const first=await ui.eval(`(async()=>{const {openDashboard}=await import('./client.js');const tab=await openDashboard();return {id:tab.id,url:tab.pendingUrl || tab.url};})()`);
+    assert.equal(first.url,`chrome-extension://${extId}/dashboard.html?v=${clientVersion}`);
+    await waitUntil(()=>ui.eval(`(async()=> (await chrome.tabs.get(${first.id})).url===${JSON.stringify(`chrome-extension://${extId}/dashboard.html?v=${clientVersion}`)})()`));
+    const second=await ui.eval(`(async()=>{const {openDashboard}=await import('./client.js');return (await openDashboard()).id;})()`);
+    assert.equal(second,first.id);
+    assert.equal(await ui.eval(`document.getElementById('body').value`),'이전 탭의 미저장 원고');
+    await sw.eval(`chrome.tabs.remove(${first.id})`);
+    await ui.eval(`document.getElementById('body').value=''`);
+  });
   await check('세 제공자·초 단위 날짜·시분초 입력',async()=>assert.deepEqual(await ui.eval('[document.getElementById("provider").options.length,document.getElementById("at").step,!!document.getElementById("delayS"),!!document.getElementById("autoS")]'),[3,'1',true,true]));
   await check('API 키 세션 보관·모델 조회·생성 mock',async()=>{
     const keyResult=await msg('key',{provider:'openai',key:'test-only-key',remember:false});

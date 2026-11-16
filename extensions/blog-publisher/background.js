@@ -4,6 +4,7 @@ import {naverEditor, publishedUrl} from './naver.js';
 import {ensureImages, imagePayload, referencedImages, pruneImages} from './images.js';
 import {buildLayout} from './layout.js';
 import {isReviewCurrent} from './review.js';
+import {openDashboard} from './client.js';
 
 const DB = 'postingStudio';
 const empty = () => ({composer:{},drafts:[],jobs:[],logs:[],settings:{},paused:false});
@@ -353,12 +354,7 @@ chrome.runtime.onMessage.addListener((m,sender,reply) => {
     await log('error','REQUEST',msg).catch(() => {});reply({ok:false,error:msg,code:e.code || 'OPERATION_FAILED',version:chrome.runtime.getManifest().version,...(e.review ? {review:e.review}:{})});
   });return true;
 });
-chrome.action.onClicked.addListener(async () => {
-  const url = chrome.runtime.getURL('dashboard.html');
-  const tabs = await chrome.tabs.query({url});
-  if (tabs[0]) {await chrome.tabs.update(tabs[0].id,{active:true});await chrome.windows.update(tabs[0].windowId,{focused:true});}
-  else await chrome.tabs.create({url});
-});
+chrome.action.onClicked.addListener(() => {void openDashboard().catch(console.error);});
 chrome.alarms.onAlarm.addListener(a => {if (a.name.startsWith('posting-')) void tick().catch(console.error);});
 chrome.runtime.onStartup.addListener(() => {void boot.then(() => tick()).catch(console.error);});
 chrome.runtime.onInstalled.addListener(() => {void boot.then(() => arm()).catch(console.error);});

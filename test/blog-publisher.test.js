@@ -6,12 +6,28 @@ import {publishedUrl} from '../extensions/blog-publisher/naver.js';
 import {imageType, inspectImage, normalizeImages, MAX_IMAGE_BYTES} from '../extensions/blog-publisher/images.js';
 import {buildLayout, insertMarkerAt} from '../extensions/blog-publisher/layout.js';
 import {parseReviewReply, reviewSignature, isReviewCurrent, buildReviewPrompt} from '../extensions/blog-publisher/review.js';
-import {CLIENT_VERSION, requestMessage} from '../extensions/blog-publisher/client.js';
+import {CLIENT_VERSION, requestMessage, openDashboard} from '../extensions/blog-publisher/client.js';
 import {readFile} from 'node:fs/promises';
 import {DASHBOARD_IDS, checkDashboard, requiredElement} from '../extensions/blog-publisher/ui-guard.js';
 
 const c = normalizeComposer({provider:'openai',model:'text-model',keywords:'대원외고 영어',topic:'구문 분석',persona:'친절한 학습 코치',title:'제목',body:'본문',tags:['영어']});
 const response = data => new Response(JSON.stringify(data),{status:200,headers:{'Content-Type':'application/json'}});
+
+test('대시보드 실행은 구버전 탭을 보존하고 현재 버전만 재사용',async()=>{
+  const base='chrome-extension://test/dashboard.html',url=`${base}?v=${CLIENT_VERSION}`,calls=[];
+  let tabs=[{id:1,windowId:2,url:base},{id:3,windowId:2,url:`${base}?v=1.1.0`}];
+  const browser={runtime:{getURL:()=>base,getManifest:()=>({version:CLIENT_VERSION})},
+    tabs:{query:async filter=>{assert.equal(filter.url,base+'*');return tabs;},create:async options=>{calls.push(['create',options]);},update:async(...args)=>{calls.push(['update',...args]);}},
+    windows:{update:async(...args)=>{calls.push(['focus',...args]);}}};
+  await openDashboard(browser);
+  assert.deepEqual(calls,[['create',{url}]]);
+  calls.length=0;tabs.push({id:4,windowId:5,url:url+'#write'});
+  await openDashboard(browser);
+  assert.deepEqual(calls,[['update',4,{active:true}],['focus',5,{focused:true}]]);
+  calls.length=0;tabs=[{id:6,windowId:5,url:'',pendingUrl:url}];
+  await openDashboard(browser);
+  assert.deepEqual(calls,[['update',6,{active:true}],['focus',5,{focused:true}]]);
+});
 test('BP-01 초 단위 지연과 절대 시각 검증',() => {
   assert.equal(durationMs(1,2,3),3723000);
   assert.equal(dueTime({mode:'delay',hours:1,minutes:2,seconds:3},1000),3724000);

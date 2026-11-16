@@ -1,4 +1,4 @@
-# 블로그 포스팅 스튜디오 1.3.2
+# 블로그 포스팅 스튜디오 1.3.3
 
 네이버 블로그용 Chrome Manifest V3 확장 프로그램입니다. 별도 서버나 Node 설치 없이 확장 프로그램 폴더를 불러와 사용합니다. API 키와 네이버 로그인은 사용자가 직접 설정합니다.
 
@@ -128,3 +128,6 @@ AI의 판단은 정확성을 보장하는 외부 사실 확인이 아닙니다. 
 저장소 루트에서 `node --test test/blog-publisher.test.js`로 핵심 테스트를 실행합니다. 브라우저 통합 점검은 `node scripts/check-blog-publisher-browser.mjs`입니다. 브라우저 점검은 별도 임시 프로필에서 실행하며 사용자의 네이버 계정에 로그인하거나 실제 게시하지 않습니다.
 
 공식 API 참고: [OpenAI Models](https://developers.openai.com/api/reference/resources/models/methods/list), [OpenAI Responses](https://developers.openai.com/api/reference/resources/responses/methods/create), [Claude Messages](https://platform.claude.com/docs/en/api/messages/create), [Gemini Models](https://ai.google.dev/api/models), [Chrome Alarms](https://developer.chrome.com/docs/extensions/reference/api/alarms).
+
+
+v1.3.3부터 확장 아이콘은 현재 버전의 대시보드만 재사용합니다. 구버전 탭은 미저장 입력 보존을 위해 남겨 두고 새 버전 탭을 엽니다. 업데이트 후 chrome://extensions에서 확장을 새로고침하고 아이콘을 누르세요. 확장 관리 화면의 이전 오류 기록은 자동으로 지워지지 않습니다.
