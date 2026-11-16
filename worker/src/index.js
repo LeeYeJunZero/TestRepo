@@ -202,12 +202,18 @@ async function statsText(db, daysIn) {
     refMap[host] = (refMap[host] || 0) + r.n;
   }
   const topRefs = Object.entries(refMap).sort((a, b) => b[1] - a[1]).slice(0, 5);
+  // 퍼스트매스 급식·학사일정: 학교를 조회한 방문자(결과 카드 클릭 또는 school/?code= 직접 방문) → 그 방문자의 상담 신청
+  const sv = await first(db, `SELECT COUNT(DISTINCT visitor) n FROM (
+    SELECT visitor FROM events WHERE kind = 'click' AND href LIKE '%school/?code=%' AND visitor <> '' AND created_at >= ${since}
+    UNION SELECT visitor FROM visits WHERE path LIKE '%school/?code=%' AND bot = 0 AND created_at >= ${since})`);
+  const si = await first(db, `SELECT COUNT(*) n FROM inquiries WHERE message LIKE '유입: 급식·학사일정%' AND created_at >= ${since}`);
   return [
     `📊 <b>통계 (${days === 1 ? '오늘' : `최근 ${days}일`})</b>`,
     `페이지 조회 ${t.pv || 0}회 · 방문자 ${t.uv || 0}명 · 오늘 ${t.today_pv || 0}회`,
     `모바일 ${t.pv ? Math.round(((t.mobile || 0) / t.pv) * 100) : 0}% · 상담 ${inq.n}건 (미처리 ${inq.p})`,
     '', '<b>과목별</b> (노출 / 클릭 / 클릭률)',
     ...SUBJECTS.map((s) => { const r = sub.find((x) => x.subject === s) || {}; return `${SUBJ_ICON[s]} ${subj(s)}  ${r.views || 0} / ${r.clicks || 0} / ${ctr(r.clicks || 0, r.views || 0)}%`; }),
+    sv.n || si.n ? `\n<b>급식·학사일정</b>\n학교 조회 ${sv.n}명 → 상담 ${si.n}건 (${ctr(si.n, sv.n)}%)` : '',
     topRefs.length ? '\n<b>유입 경로</b>\n' + topRefs.map(([k, n]) => `· ${h(k)} ${n}`).join('\n') : ''
   ].join('\n');
 }

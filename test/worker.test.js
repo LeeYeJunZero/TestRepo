@@ -146,6 +146,16 @@ test('W-07 알림 끄기: 클릭 알림 off 이면 전송 안 함', async () => 
   assert.ok(!tgCalls.slice(before).some((c) => c.method === 'sendMessage'));
 });
 
+test('W-11 /stats: 급식·학사일정 학교 조회 방문자 → 상담 전환', async () => {
+  const o = { headers: { 'cf-connecting-ip': '2.2.2.2' } };
+  await call('/api/event', { ...o, body: { kind: 'click', label: '대치중학교', href: 'school/?code=7010057', vid: 'b'.repeat(32) } });
+  await call('/api/track', { ...o, body: { path: '/FirstMath/school/?code=7010057', vid: 'b'.repeat(32) } }); // 같은 방문자 → 1명
+  await call('/api/track', { ...o, body: { path: '/FirstMath/school/?code=7010058', vid: 'c'.repeat(32) } });
+  assert.equal((await call('/api/inquiry', { ...o, body: { name: '김', phone: '010-1234-5678', agree: true, message: '유입: 급식·학사일정 (대치중학교)\n특이사항: x' } })).status, 200);
+  await msg(777, '/stats 7');
+  assert.match(lastTo(777), /학교 조회 2명 → 상담 1건 \(50%\)/);
+});
+
 // ───── 실시간 상담 ─────
 const tgSentIdx = (re) => tgCalls.findLastIndex((c) => c.method === 'sendMessage' && re.test(c.params.text));
 const tgMsgId = (idx) => idx + 1; // 모의 텔레그램은 message_id = 호출 순번
