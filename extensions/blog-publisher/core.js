@@ -1,3 +1,4 @@
+import {normalizeImages} from './images.js';
 export const PROVIDERS = {
   openai: {name: 'OpenAI', base: 'https://api.openai.com/v1'},
   anthropic: {name: 'Anthropic Claude', base: 'https://api.anthropic.com/v1'},
@@ -42,7 +43,7 @@ export function normalizeComposer(raw = {}) {
     instructions: text(raw.instructions, 4000), references: text(raw.references, 18000),
     length: Math.max(300, Math.min(10000, Number(raw.length) || 1800)),
     blogId: text(raw.blogId, 50), action: Object.hasOwn(ACTIONS, raw.action) ? raw.action : 'local',
-    ...normalizePost(raw)
+    ...normalizePost(raw), images:normalizeImages(raw.images || [])
   };
 }
 export function validateComposer(c, {generate = false} = {}) {
@@ -74,7 +75,7 @@ export function dueTime({mode, at, hours, minutes, seconds}, now = Date.now()) {
   return result;
 }
 export async function fingerprint(c) {
-  const bytes = new TextEncoder().encode(JSON.stringify([c.action,c.blogId,c.title,c.body,c.tags,
+  const bytes = new TextEncoder().encode(JSON.stringify([c.action,c.blogId,c.title,c.body,c.tags,(c.images || []).map(r=>r.id),
     ...(!c.title || !c.body ? [c.provider,c.model,c.keywords,c.topic,c.persona,c.audience,c.tone,c.instructions,c.references,c.length] : [])]));
   return Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256', bytes)), b => b.toString(16).padStart(2,'0')).join('');
 }

@@ -1,6 +1,7 @@
 import {ACTIONS, RUNNING, PROVIDERS, normalizeComposer, validateComposer, dueTime, fingerprint, recoverJobs, publicBackup, importDrafts, redact} from './core.js';
 import {generate, listModels} from './api.js';
 import {naverEditor, publishedUrl} from './naver.js';
+import {ensureImages, imagePayload, referencedImages, pruneImages} from './images.js';
 
 const DB = 'postingStudio';
 const empty = () => ({composer:{},drafts:[],jobs:[],logs:[],settings:{},paused:false});
@@ -48,9 +49,11 @@ async function arm() {
 async function recover() {
   await chrome.storage.local.setAccessLevel({accessLevel:'TRUSTED_CONTEXTS'});
   await chrome.storage.session.setAccessLevel({accessLevel:'TRUSTED_CONTEXTS'});
-  const found = await mutate(s => {
+  const found = await mutate(async s => {
     const n = s.jobs.filter(j => RUNNING.includes(j.status)).length;
-    s.jobs = recoverJobs(s.jobs); return n;
+    s.jobs = recoverJobs(s.jobs);
+    for (const j of s.jobs) j.fingerprint=await fingerprint(j.content);
+    return n;
   });
   if (found) await log('warn','RECOVERY',`실행 중이던 ${found}건을 화면 확인 필요로 바꿨습니다. 자동 재발행하지 않습니다.`);
   await chrome.alarms.create('posting-watch',{periodInMinutes:0.5});
@@ -83,6 +86,34 @@ async function editor(job) {
   const result = (await exec(tab.id,{op:'fill',jobId:job.id,post:job.content},frame))[0]?.result;
   if (!result?.filled) throw new Error('제목·본문 입력 완료를 확인하지 못했습니다.');
   await log('info','FILL',`제목·본문 ${result.bodyChars}자 입력 및 원문 대조 완료`,job.id);
+  if (job.content.images?.length) {
+    await alive(job.id);
+    for (const ref of job.content.images) await log('info','IMAGE',`업로드 준비 · ${ref.source || ref.name} · ${ref.size} bytes`,job.id);
+    const prepared=(await exec(tab.id,{op:'prepare-image',jobId:job.id},frame))[0]?.result;
+    if (!prepared?.prepared) throw new Error('사진 입력 위치를 준비하지 못했습니다. 발행을 중단합니다.');
+    let ready=false;
+    for (let i=0;i<25;i++) {
+      await alive(job.id);
+      ready=(await exec(tab.id,{op:'image-probe',jobId:job.id},frame))[0]?.result?.inputReady;
+      if (ready) break;
+      await new Promise(r=>setTimeout(r,200));
+    }
+    if (!ready) throw new Error('사진 파일 입력 영역을 찾지 못했습니다. 열린 편집기를 확인하세요. 이미지 없이 발행하지 않습니다.');
+    const images=[];for (const ref of job.content.images) images.push(await imagePayload(ref));
+    const attached=(await exec(tab.id,{op:'attach-images',jobId:job.id,images},frame))[0]?.result;
+    if (!attached?.attached) throw new Error('사진 파일을 편집기에 전달하지 못했습니다.');
+    let verified=false;
+    for (let i=0;i<90;i++) {
+      await alive(job.id);
+      const probe=(await exec(tab.id,{op:'image-probe',jobId:job.id,expected:images.length},frame))[0]?.result;
+      if (probe?.newImageReady) {verified=true;break;}
+      await new Promise(r=>setTimeout(r,500));
+    }
+    if (!verified) throw new Error('선택한 이미지 전체의 업로드 완료를 확인하지 못했습니다. 이미지 누락 방지를 위해 저장·발행을 중단합니다.');
+    await log('success','IMAGE',`이미지 ${images.length}장 업로드 완료 확인`,job.id);
+  }
+  const verified=(await exec(tab.id,{op:'verify-post',jobId:job.id,post:job.content},frame))[0]?.result;
+  if (!verified?.valid) throw new Error('최종 제목·본문 대조에 실패했습니다. 저장·발행 전에 작업 화면을 확인하세요.');
   if (job.content.action === 'editor') return {message:'편집기에 입력했습니다. 발행하지 않았습니다.',url:(await chrome.tabs.get(tab.id)).url};
   await alive(job.id);
   // Persist intent before any final click: a restart must never replay an ambiguous send.
@@ -114,6 +145,7 @@ async function run(job) {
   const keepAlive = setInterval(() => chrome.runtime.getPlatformInfo().catch(() => {}),20000);
   try {
     await log('info','START',`${ACTIONS[job.content.action]} 시작 · 예약 대비 ${Math.max(0,Date.now()-job.scheduledAt)}ms 지연`,job.id);
+    await ensureImages(job.content.images);
     if (!job.content.body || !job.content.title) {
       await updateJob(job.id,{status:'generating'});
       validateComposer(job.content,{generate:true});
@@ -169,6 +201,7 @@ async function tick() {
 }
 async function saveDraft(raw) {
   const content = normalizeComposer(raw);
+  await ensureImages(content.images);
   return mutate(s => {
     const draft = {id:crypto.randomUUID(),content,savedAt:Date.now()};
     s.drafts.unshift(draft); s.drafts = s.drafts.slice(0,200); return draft;
@@ -182,7 +215,10 @@ async function dispatch(m) {
       s.keyStatus = Object.fromEntries(await Promise.all(Object.keys(PROVIDERS).map(async p => [p,!!await getKey(p)])));
       return s;
     }
-    case 'composer': return mutate(s => {s.composer = normalizeComposer(m.content);s.composerSavedAt = Date.now();});
+    case 'composer': {
+      const content=normalizeComposer(m.content);await ensureImages(content.images);
+      return mutate(s => {s.composer=content;s.composerSavedAt=Date.now();});
+    }
     case 'draft': {
       const d = await saveDraft(m.content);await log('info','DRAFT','로컬 임시저장 완료');return d;
     }
@@ -221,6 +257,7 @@ async function dispatch(m) {
     case 'enqueue': {
       const content = normalizeComposer(m.content);
       validateComposer(content,{generate:!content.title || !content.body});
+      await ensureImages(content.images);
       const scheduledAt = m.schedule ? dueTime(m.schedule):Date.now();
       const fp = await fingerprint(content);
       const job = await mutate(s => {
@@ -262,8 +299,13 @@ async function dispatch(m) {
     case 'clean': return mutate(s => {s.jobs = s.jobs.filter(j => !['done','failed','cancelled'].includes(j.status));});
     case 'clear-logs': return mutate(s => {s.logs = [];});
     case 'backup': return publicBackup(await read());
+    case 'prune-images': {
+      const removed=await pruneImages(referencedImages(await read()));
+      await log('info','IMAGE',`미사용 이미지 ${removed}개 정리 · 최근 10분 내 추가 파일은 유지`);return removed;
+    }
     case 'import': {
       const drafts = importDrafts(m.data);
+      for (const d of drafts) await ensureImages(d.content.images);
       await mutate(s => {s.drafts = [...drafts,...s.drafts].slice(0,200);});
       await log('info','IMPORT',`${drafts.length}개를 로컬 임시저장으로 가져옴. 예약·발행은 실행하지 않음.`);return drafts.length;
     }

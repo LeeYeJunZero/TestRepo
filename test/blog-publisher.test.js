@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import {normalizeComposer, normalizePost, parseGenerated, durationMs, dueTime, redact, recoverJobs, publicBackup, importDrafts, fingerprint, buildPrompt, validateComposer} from '../extensions/blog-publisher/core.js';
 import {listModels, generate} from '../extensions/blog-publisher/api.js';
 import {publishedUrl} from '../extensions/blog-publisher/naver.js';
+import {imageType, inspectImage, normalizeImages, MAX_IMAGE_BYTES} from '../extensions/blog-publisher/images.js';
 
 const c = normalizeComposer({provider:'openai',model:'text-model',keywords:'대원외고 영어',topic:'구문 분석',persona:'친절한 학습 코치',title:'제목',body:'본문',tags:['영어']});
 const response = data => new Response(JSON.stringify(data),{status:200,headers:{'Content-Type':'application/json'}});
@@ -89,4 +90,37 @@ test('BP-12 발행 완료 URL은 해당 블로그 글 주소만 인정',()=>{
   assert.equal(publishedUrl('https://blog.naver.com/teacher/123456','teacher'),'https://blog.naver.com/teacher/123456');
   assert.ok(publishedUrl('https://blog.naver.com/PostView.naver?blogId=teacher&logNo=123456','teacher'));
   for (const u of ['https://evil.test/teacher/123456','https://blog.naver.com/other/123456','https://blog.naver.com/PostWriteForm.naver?blogId=teacher']) assert.equal(publishedUrl(u,'teacher'),null);
+});
+test('BP-13 이미지 내용 확인·가짜 확장자·SVG 거부',()=>{
+  assert.equal(imageType(new Uint8Array([137,80,78,71,13,10,26,10])),'image/png');
+  assert.equal(imageType(new Uint8Array([255,216,255])),'image/jpeg');
+  assert.equal(imageType(new TextEncoder().encode('GIF89a')),'image/gif');
+  assert.equal(imageType(new TextEncoder().encode('RIFF1234WEBP')),'image/webp');
+  assert.throws(()=>imageType(new TextEncoder().encode('<svg><script>bad</script></svg>')));
+  assert.throws(()=>imageType(new TextEncoder().encode('not a png')));
+});
+test('BP-14 첨부 개수·크기·중복·총량·식별자 검증',()=>{
+  const ref={id:'a'.repeat(64),name:'1.png',source:'test1/1.png',type:'image/png',size:100};
+  assert.equal(normalizeComposer({...c,images:[ref]}).images[0].source,'test1/1.png');
+  assert.throws(()=>normalizeImages([ref,ref]));
+  assert.throws(()=>normalizeImages([{...ref,id:'file:///C:/secret.png'}]));
+  assert.throws(()=>normalizeImages([{...ref,size:MAX_IMAGE_BYTES+1}]));
+  assert.throws(()=>normalizeImages(Array.from({length:5},(_,i)=>({...ref,id:String(i).repeat(64),size:MAX_IMAGE_BYTES}))));
+  assert.throws(()=>normalizeImages(Array.from({length:11},(_,i)=>({...ref,id:i.toString(16).repeat(64)}))));
+});
+test('BP-15 이미지 바이트 해시·용량·형식과 첨부별 중복 판정',async()=>{
+  const bytes=new Uint8Array([137,80,78,71,13,10,26,10,0]),image=await inspectImage(new Blob([bytes]));
+  assert.equal(image.size,9);assert.equal(image.type,'image/png');assert.match(image.id,/^[a-f0-9]{64}$/);
+  const other=await inspectImage(new Blob([bytes,Uint8Array.of(1)]));assert.notEqual(image.id,other.id);
+  await assert.rejects(()=>inspectImage(new Blob([])));
+  await assert.rejects(()=>inspectImage(new Blob([new Uint8Array(MAX_IMAGE_BYTES+1)])));
+  assert.notEqual(await fingerprint(c),await fingerprint({...c,images:[{...image,name:'1.png'}]}));
+});
+test('BP-16 원고 백업과 복원은 이미지 참조·순서를 유지',()=>{
+  const images=[{id:'a'.repeat(64),name:'1.png',source:'test1/1.png',type:'image/png',size:100},
+    {id:'b'.repeat(64),name:'2.jpg',source:'test1/2.jpg',type:'image/jpeg',size:200}];
+  const content=normalizeComposer({...c,images});
+  const restored=importDrafts(publicBackup({composer:content,drafts:[],jobs:[]}));
+  assert.deepEqual(restored[0].content.images,images);
+  const prompt=buildPrompt(content);assert.ok(!prompt.includes(images[0].id));assert.ok(!prompt.includes('test1/1.png'));
 });

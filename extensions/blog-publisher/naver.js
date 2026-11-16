@@ -8,6 +8,11 @@ export async function naverEditor(command) {
   const title = () => document.querySelector('.se-documentTitle [contenteditable="true"], .se-section-documentTitle [contenteditable="true"], .se-title-text[contenteditable="true"]');
   const body = () => [...document.querySelectorAll('.se-main-container .se-component.se-text [contenteditable="true"], .se-component-content .se-section-text [contenteditable="true"]')]
     .find(el => !el.closest('.se-documentTitle, .se-section-documentTitle'));
+  const imageInputs = () => [...document.querySelectorAll('input[type="file"]')].filter(el =>
+    /image|\.png|\.jpe?g|\.gif|\.webp/i.test(el.accept) || el.closest('.se-popup-image, .se-image-uploader'));
+  const uploaded = () => [...document.querySelectorAll('.se-main-container .se-component.se-image img')].filter(el =>
+    /^https:\/\//.test(el.currentSrc || el.src) && el.complete && el.naturalWidth>0);
+  const actualBody = () => norm([...document.querySelectorAll('.se-main-container .se-component.se-text')].map(value).join(' '));
   const check = () => {
     if (globalThis.__postingStudioCancelled === jobId) throw new Error('중단 요청을 확인했습니다.');
     if (/자동입력 방지|보안문자|캡차|비정상적인 접근/.test(all('[role="dialog"], .captcha, [class*="captcha"]').map(value).join(' ')))
@@ -16,6 +21,47 @@ export async function naverEditor(command) {
   if (op === 'cancel') { globalThis.__postingStudioCancelled = jobId; return {cancelled:true}; }
   if (op === 'probe') return {ready:!!title() && !!body(),url:location.href};
   check();
+  if (op === 'verify-post') return {valid:value(title())===norm(post.title) && actualBody().includes(norm(post.body))};
+  if (op === 'image-probe') {
+    const before=globalThis.__postingStudioImageBefore;
+    const nodes=uploaded();
+    return {inputReady:imageInputs().length===1,imageCount:nodes.length,
+      newImageReady:before?.jobId===jobId && nodes.length>=before.count+(Number(command.expected)||1)};
+  }
+  if (op === 'prepare-image') {
+    const paragraphs=[...document.querySelectorAll('.se-main-container .se-component.se-text [contenteditable="true"]')];
+    const last=paragraphs.at(-1);
+    if (!last) throw new Error('사진을 넣을 본문 위치를 찾지 못했습니다.');
+    last.focus();const range=document.createRange();range.selectNodeContents(last);range.collapse(false);
+    const selection=window.getSelection();selection.removeAllRanges();selection.addRange(range);
+    globalThis.__postingStudioImageBefore={jobId,count:uploaded().length};
+    if (!imageInputs().length) {
+      const toolbar=all('button').filter(el => el.dataset.name==='image' || ['사진','사진 추가'].includes(norm(el.getAttribute('aria-label') || el.title || el.textContent)));
+      if (toolbar.length!==1) throw new Error('네이버 사진 첨부 버튼을 확정할 수 없습니다.');
+      check();toolbar[0].click();
+    }
+    return {prepared:true};
+  }
+  if (op === 'attach-images') {
+    const images=command.images;
+    if (!Array.isArray(images) || !images.length || images.length>10 || images.reduce((n,r)=>n+r.size,0)>41943040)
+      throw new Error('사진 전송 정보가 올바르지 않습니다.');
+    const inputs=imageInputs();
+    if (inputs.length!==1) throw new Error('사진 파일 입력 영역을 하나로 확정할 수 없습니다.');
+    if (images.length>1 && !inputs[0].multiple) throw new Error('편집기가 여러 사진 선택을 지원하지 않습니다. 한 장씩 첨부할 원고로 나누어 주세요.');
+    const files=new DataTransfer();
+    for (const image of images) {
+      if (!image || !['image/png','image/jpeg','image/gif','image/webp'].includes(image.type) || typeof image.data!=='string'
+        || image.size<=0 || image.size>10485760 || image.data.length>13981020) throw new Error('사진 전송 정보가 올바르지 않습니다.');
+      const bytes=Uint8Array.from(atob(image.data),c=>c.charCodeAt(0));
+      if (bytes.length!==image.size) throw new Error('사진 데이터 크기가 원본과 다릅니다.');
+      files.items.add(new File([bytes],image.name,{type:image.type}));
+    }
+    check();inputs[0].files=files.files;
+    inputs[0].dispatchEvent(new Event('input',{bubbles:true}));
+    inputs[0].dispatchEvent(new Event('change',{bubbles:true}));
+    return {attached:true,count:images.length};
+  }
   if (op === 'fill') {
     const t = title(), b = body();
     if (!t || !b) throw new Error('네이버 SmartEditor 제목/본문 입력 영역을 찾지 못했습니다.');
@@ -32,7 +78,6 @@ export async function naverEditor(command) {
     };
     insert(t,post.title);
     insert(b,post.body + (post.tags?.length ? '\n\n'+post.tags.map(t => '#'+t.replace(/\s+/g,'')).join(' ') : ''));
-    const actualBody = () => norm([...document.querySelectorAll('.se-main-container .se-component.se-text')].map(value).join(' '));
     if (value(t) !== norm(post.title) || !actualBody().includes(norm(post.body)))
       throw new Error('입력 후 제목/본문이 원문과 일치하지 않습니다. 화면에서 확인하세요.');
     return {filled:true,title:value(t),bodyChars:post.body.length};
