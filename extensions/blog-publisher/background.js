@@ -304,7 +304,7 @@ async function dispatch(m) {
       const job = await mutate(s => {
         if (s.jobs.length >= 500) throw new Error('작업은 최대 500개까지 보관합니다. 완료 기록을 정리하세요.');
         if (s.jobs.some(j => j.fingerprint === fp && !['cancelled','failed'].includes(j.status)))
-          throw new Error('같은 내용·작업의 기록이 있습니다. 중복 게시 방지를 위해 추가하지 않았습니다.');
+          throw new Error('동일 원고의 대기·실행·완료 기록이 있습니다. 예약·작업에서 해당 건을 확인하세요. 실제 발행되지 않았다면 「발행 안 됨 · 다시 작성」으로 차단을 해제할 수 있습니다.');
         const j = {id:crypto.randomUUID(),content,scheduledAt,createdAt:Date.now(),status:'queued',attempts:0,fingerprint:fp};
         s.jobs.push(j);return j;
       });
@@ -333,9 +333,18 @@ async function dispatch(m) {
         j.status = 'queued';j.attempts = 0;j.error = '';j.scheduledAt = Date.now();
       });await arm();void tick().catch(console.error);return true;
     }
+    case 'not-published': {
+      await mutate(s=>{
+        const j=s.jobs.find(j=>j.id===m.id);
+        if(!j || !['needs_review','done'].includes(j.status))throw new Error('발행 여부 확인 대상 작업이 아닙니다.');
+        j.status='cancelled';j.error='사용자가 미발행을 확인했습니다. 원고를 불러와 다시 등록할 수 있습니다.';
+        j.result={message:'미발행 확인 · 중복 차단 해제'};
+      });
+      await log('info','CANCEL','사용자가 미발행 확인 · 원고 재등록 허용',m.id);return true;
+    }
     case 'resolve': return mutate(s => {
       const j = s.jobs.find(j => j.id === m.id);
-      if (j?.status === 'needs_review') {j.status = 'done';j.result = {message:'사용자가 작업 화면 확인 후 수동 완료 처리'};}
+      if (j?.status === 'needs_review') {j.status = 'done';j.error='';j.result = {message:'사용자가 실제 발행 완료를 확인했습니다.'};}
     });
     case 'clean': return mutate(s => {s.jobs = s.jobs.filter(j => !['done','failed','cancelled'].includes(j.status));});
     case 'clear-logs': return mutate(s => {s.logs = [];});

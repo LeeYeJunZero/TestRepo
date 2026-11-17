@@ -99,7 +99,7 @@ export async function fingerprint(c) {
 }
 export function recoverJobs(jobs) {
   return jobs.map(j => RUNNING.includes(j.status)
-    ? {...j, status:'needs_review', error:'크롬 또는 확장 프로그램이 실행 중 재시작됐습니다. 중복 게시 방지를 위해 자동 재실행하지 않습니다.'}
+    ? {...j, status:['generating','reviewing'].includes(j.status) && !j.tabId ? 'failed':'needs_review', error:'실행 중 재시작되어 작업이 중단됐습니다. 발행 여부를 확인하고 다시 진행하세요.'}
     : j);
 }
 export function publicBackup(state) {

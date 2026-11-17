@@ -250,7 +250,7 @@ test('BP-25 가져온 원고는 승인 기록을 재사용하지 않으며 검�
   const out=await parseReviewReply(JSON.stringify(checkedReply(c)),c);
   const restored=importDrafts(publicBackup({composer:{...c,...out},drafts:[],jobs:[]}));
   assert.equal(restored[0].content.review,null);
-  assert.equal(recoverJobs([{status:'reviewing'}])[0].status,'needs_review');
+  assert.equal(recoverJobs([{status:'reviewing'}])[0].status,'failed');
 });
 test('BP-26 수정 이유 없는 교정·잘못된 JSON은 거부',async()=>{
   await assert.rejects(()=>parseReviewReply(JSON.stringify(checkedReply(c,{body:'새 본문'})),c),/수정 이유/);

@@ -276,6 +276,20 @@ try {
     const changed=await msg('enqueue',{content:{...source,...checked,title:'수정한 검수 제목',action:'draft',blogId:'testblog'}});await msg('tick');
     await waitUntil(async()=> (await msg('state')).data.jobs.find(j=>j.id===changed.data.id)?.status==='done');assert.equal(await sw.eval('globalThis.reviewCalls'),before+1);
   });
+  await check('수동 완료 오처리 후 미발행 확인으로 즉시·예약 재등록 가능',async()=>{
+    await msg('pause',{paused:true});
+    await sw.eval(`(async()=>{const x=(await chrome.storage.local.get('postingStudio')).postingStudio;x.jobs.push({id:'manual-old',content:${JSON.stringify({...c,action:'publish',blogId:'testblog',title:'미발행 복구 테스트'})},status:'needs_review',createdAt:Date.now(),scheduledAt:Date.now()});await chrome.storage.local.set({postingStudio:x})})()`);
+    await msg('resolve',{id:'manual-old'});
+    assert.equal((await msg('not-published',{id:'manual-old'})).ok,true);
+    assert.equal((await msg('state')).data.jobs.find(j=>j.id==='manual-old').status,'cancelled');
+    const content={...c,action:'publish',blogId:'testblog',title:'미발행 복구 테스트'};
+    const immediate=await msg('enqueue',{content});assert.equal(immediate.ok,true);
+    assert.equal((await msg('enqueue',{content})).ok,false);
+    await msg('cancel',{id:immediate.data.id});
+    const scheduled=await msg('enqueue',{content,schedule:{mode:'delay',minutes:5}});assert.equal(scheduled.ok,true);
+    await msg('cancel',{id:scheduled.data.id});
+    await msg('pause',{paused:false});
+  });
   await check('짧은 검수 판정·수동 재검수 캐시·검수 시간 로그',async()=>{
     await sw.eval(`globalThis.reviewMode='compact'`);
     const source={...c,title:'짧은 검수 응답 테스트'},checked=(await msg('review',{content:source})).data;

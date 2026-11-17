@@ -87,7 +87,12 @@ function renderJobs() {
     if (j.status === 'failed' && !j.tabId) actions.append(btn('재시도',async () => {await send('retry',{id:j.id});await refresh();}));
     if (j.tabId) actions.append(btn('작업 탭 보기',() => chrome.tabs.update(j.tabId,{active:true})));
     if (j.result?.url?.startsWith('https://blog.naver.com/')) actions.append(btn('결과 열기',() => chrome.tabs.create({url:j.result.url})));
-    if (j.status === 'needs_review') actions.append(btn('확인 후 완료 처리',async () => {await send('resolve',{id:j.id});await refresh();}));
+    if (j.status === 'needs_review') actions.append(btn('실제 발행됨',async () => {if(!confirm('네이버에 글이 실제로 발행된 것을 확인했나요?'))return;await send('resolve',{id:j.id});await refresh();}));
+    if (['needs_review','done'].includes(j.status) && j.content.action!=='local') actions.append(btn('발행 안 됨 · 다시 작성',async()=>{
+      if(!confirm('네이버에 이 글이 발행되지 않았음을 확인했나요? 확인하면 중복 차단을 해제하고 원고를 불러옵니다.'))return;
+      await send('not-published',{id:j.id});await replaceComposer({...j.content,review:j.content.review});await refresh();
+      notify('미발행 확인 완료. 원고를 확인한 뒤 즉시 실행하거나 예약하세요.');
+    }));
     box.append(actions);root.append(box);
   }
 }
