@@ -79,6 +79,7 @@ function renderJobs() {
     const box = node('div','','job'),head = node('div','','job-head'),title = node('div');
     title.append(node('h3',j.content.title || j.content.topic || '제목 생성 예정'),node('p',`${ACTIONS[j.content.action]} · ${date(j.scheduledAt)} · 이미지 ${j.content.images?.length || 0}장 · ${j.id.slice(0,8)}`));
     head.append(title,node('span',STATES[j.status] || j.status,`state ${j.status}`));box.append(head);
+    if(RUNNING.includes(j.status))box.append(node('p',`현재 단계: ${STATES[j.status]} · ${Math.max(0,Math.floor((Date.now()-(j.updatedAt || j.startedAt || Date.now()))/1000))}초 경과${['generating','reviewing'].includes(j.status) ? ' · AI 서버 응답 대기 (요청당 최대 60초)':''}`));
     if (j.error) box.append(node('p',j.error,'error'));
     if (j.result) box.append(node('p',j.result.message));
     if(j.content.review)box.append(node('p',`검수: ${j.content.review.summary}`));
@@ -267,6 +268,7 @@ bind('loadModels',loadModels);
 async function runAi(mode) {
   if (generating) return;
   const epoch = generationEpoch,c = content();generating=true;$('generate').disabled=true;$('reviewPost').disabled=true;$('generating').textContent=mode==='generate' ? '초안을 작성하고 있습니다. 완료되면 바로 편집할 수 있습니다…':'제목을 기준으로 본문을 검수·교정하고 있습니다…';
+  const started=Date.now(),progress=setInterval(()=>{if(!halted)$('generating').textContent=`${mode==='generate' ? '초안 작성':'제목 기준 검수'} · ${Math.floor((Date.now()-started)/1000)}초 경과 · AI 서버 응답 대기 (요청당 최대 60초)`;},1000);
   try {
     if(mode==='generate' && c.body)await send('draft',{content:c});
     const result = await send(mode,{content:c});
@@ -275,7 +277,7 @@ async function runAi(mode) {
     } else {load({...c,...result});await persist();notify(!result.review ? '초안 작성 완료. 편집 후 제목 기준 검수를 실행하세요.':result.review.changed ? '제목에 맞게 본문을 교정했습니다. 수정 이유를 확인하세요.':'제목·본문 일치 검수를 통과했습니다.');}
     await refresh();
   }catch(e){if(e instanceof DashboardLayoutError)throw e;if(epoch===generationEpoch){reviewInfo=e.review || null;changed=true;await persist();launch(renderReview);}await refresh();throw new Error(e.message+' · 원고·임시저장 목록을 확인하세요.');}
-  finally {generating=false;$('generate').disabled=false;$('reviewPost').disabled=false;$('generating').textContent='';}
+  finally {clearInterval(progress);generating=false;$('generate').disabled=false;$('reviewPost').disabled=false;$('generating').textContent='';}
 }
 bind('generate',()=>runAi('generate'));bind('reviewPost',()=>runAi('review'));
 bind('saveDraft',async () => {await send('draft',{content:content()});await persist();await refresh();notify('로컬 임시저장 목록에 저장했습니다.');});

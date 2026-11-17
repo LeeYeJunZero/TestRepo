@@ -11,18 +11,19 @@ function auth(provider, key) {
 }
 async function requestOnce(provider, key, path, body, signal, fetcher = fetch) {
   if (!Object.hasOwn(PROVIDERS, provider) || !key) throw new ApiError('API 제공자와 키를 설정하세요.');
-  let response;
+  let response,data;
   try {
     response = await fetcher(PROVIDERS[provider].base + path, {
       method:body ? 'POST':'GET', headers:{...auth(provider,key),...(body ? {'Content-Type':'application/json'} : {})},
-      ...(body ? {body:JSON.stringify(body)} : {}), signal:signal ? AbortSignal.any([signal,AbortSignal.timeout(120000)]) : AbortSignal.timeout(body ? 120000:30000),
+      ...(body ? {body:JSON.stringify(body)} : {}), signal,
       credentials:'omit', redirect:'error'
     });
+    data=await response.json();
   } catch (e) {
+    if(signal?.reason?.name==='TimeoutError' || e.name==='TimeoutError')throw new ApiError('API 응답 시간 초과: 60초 안에 완료되지 않았습니다. 원고는 유지됩니다. 다른 모델을 선택하거나 나중에 재시도하세요.',false);
     if (signal?.aborted) throw new ApiError('작업을 중단했습니다.');
     throw new ApiError(`API 연결 실패: ${redact(e.message,[key])}`, true);
   }
-  const data = await response.json().catch(() => ({}));
   if (!response.ok) {
     const error=new ApiError(response.status===503
       ? 'API 503: 선택한 모델의 서버가 혼잡합니다. 잠시 후 다시 시도하거나 API 모델을 변경하세요. 원고는 유지됩니다.'
@@ -33,12 +34,13 @@ async function requestOnce(provider, key, path, body, signal, fetcher = fetch) {
   return data;
 }
 async function request(provider,key,path,body,signal,fetcher=fetch) {
-  try{return await requestOnce(provider,key,path,body,signal,fetcher);}
+  const deadline=AbortSignal.timeout(60000),combined=signal ? AbortSignal.any([signal,deadline]):deadline;
+  try{return await requestOnce(provider,key,path,body,combined,fetcher);}
   catch(e){
     if(e.status!==503 || signal?.aborted)throw e;
     await new Promise(resolve=>setTimeout(resolve,1000));
     if(signal?.aborted)throw new ApiError('작업을 중단했습니다.');
-    return requestOnce(provider,key,path,body,signal,fetcher);
+    return requestOnce(provider,key,path,body,combined,fetcher);
   }
 }
 export async function listModels(provider, key, fetcher = fetch) {

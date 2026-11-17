@@ -112,6 +112,16 @@ test('BP-12 발행 완료 URL은 해당 블로그 글 주소만 인정',()=>{
   assert.ok(publishedUrl('https://blog.naver.com/PostView.naver?blogId=teacher&logNo=123456','teacher'));
   for (const u of ['https://evil.test/teacher/123456','https://blog.naver.com/other/123456','https://blog.naver.com/PostWriteForm.naver?blogId=teacher']) assert.equal(publishedUrl(u,'teacher'),null);
 });
+test('API 헤더·본문 대기 시간 초과는 자동 재시도하지 않고 명확히 안내',async()=>{
+  for(const phase of ['headers','body']) {
+    let calls=0;
+    await assert.rejects(()=>generate(c,'key',null,async()=>{
+      calls++;const timeout=()=>{throw new DOMException('timeout','TimeoutError');};
+      if(phase==='headers')timeout();return {ok:true,json:async()=>timeout()};
+    }),e=>!e.retryable && e.message.includes('60초'));
+    assert.equal(calls,1);
+  }
+});
 test('API 503은 한 번 재시도하고 지속 혼잡·취소를 구분',async()=>{
   const busy=()=>new Response('{"error":{"message":"high demand"}}',{status:503});
   let calls=0;
