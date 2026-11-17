@@ -1,6 +1,6 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
-import {normalizeComposer, normalizePost, parseGenerated, durationMs, dueTime, redact, recoverJobs, publicBackup, importDrafts, fingerprint, buildPrompt, validateComposer} from '../extensions/blog-publisher/core.js';
+import {normalizeComposer, normalizePost, normalizeBlogId, parseGenerated, durationMs, dueTime, redact, recoverJobs, publicBackup, importDrafts, fingerprint, buildPrompt, validateComposer} from '../extensions/blog-publisher/core.js';
 import {listModels, generate, review} from '../extensions/blog-publisher/api.js';
 import {publishedUrl} from '../extensions/blog-publisher/naver.js';
 import {imageType, inspectImage, normalizeImages, MAX_IMAGE_BYTES} from '../extensions/blog-publisher/images.js';
@@ -177,6 +177,23 @@ test('BP-20 본문 순서·끝 첨부·백업·중복 판정에 위치 반영',a
 });
 const checkedReply=(input,extra={})=>({title:input.title,body:input.body,tags:input.tags,approved:true,
   checks:{titleMatch:true,scopeMatch:true,personaMatch:true},issues:[],summary:'제목과 본문 일치',...extra});
+test('공유한 블로그 주소에서 ID만 추출하고 외부 주소·잘못된 ID는 거부',()=>{
+  for(const value of ['testblog','https://blog.naver.com/testblog','https://m.blog.naver.com/testblog/123456789','blog.naver.com/testblog','https://blog.naver.com/PostView.naver?blogId=testblog&logNo=123456789']) {
+    assert.equal(normalizeBlogId(value),'testblog');
+    const input=normalizeComposer({...c,action:'publish',blogId:value});
+    assert.equal(input.blogId,'testblog');validateComposer(input);
+  }
+  for(const value of ['https://blog.naver.com.evil.test/testblog','https://other.test/?blogId=testblog','https://user:password@blog.naver.com/testblog','https://blog.naver.com/','https://blog.naver.com/PostView.naver?blogId=a','javascript:alert(1)'])
+    assert.throws(()=>validateComposer(normalizeComposer({...c,action:'publish',blogId:value})));
+});
+test('학교 일반 대비 전략과 공식 사실 확인의 검수 기준을 구분',async()=>{
+  const input={...c,title:'대원외고 2학년 심화영어 수행평가(에세이·스피킹) 대비 전략',references:''};
+  const prompt=buildReviewPrompt(input);
+  for(const rule of ['자료 미첨부만으로 승인을 보류하지','특정 사실의 확인을 약속','일반적인 에세이 구성·퇴고','확인되지 않은 반영 비율'])assert.ok(prompt.includes(rule));
+  assert.ok(buildPrompt(input).includes('다른 topic의 독해 설명으로 대체하지'));
+  const official={...input,title:'대원외고 올해 수행평가 반영 비율'};
+  await assert.rejects(()=>parseReviewReply(JSON.stringify(checkedReply(official,{approved:false,summary:'공식 평가계획이 필요합니다',issues:['학교의 올해 공식 평가계획을 추가하세요']})),official),e=>e.code==='REVIEW_BLOCKED' && e.review.status==='blocked');
+});
 test('BP-21 제목을 고정하고 주제 이탈 원고를 교정하는 별도 API 요청',async()=>{
   const input=normalizeComposer({...c,title:'짜장면 레시피',body:'짜파게티 봉지의 스프를 넣습니다.',persona:'친절한 요리 설명자',topic:'짜파게티'});
   const out=await review(input,'test-key',null,async(url,options)=>{

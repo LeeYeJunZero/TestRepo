@@ -46,6 +46,7 @@ async function inspectPost(c,signal,jobId='') {
   }catch(e){
     await log('error','REVIEW_BLOCKED',e.message,jobId);
     for(const issue of e.review?.issues || [])await log('warn','REVIEW_NOTE',issue,jobId);
+    if(e.review)await log('info','REVIEW_HELP','검수 보류로 네이버 전송 전에 멈췄습니다. 원고를 불러와 제목·본문을 맞추거나 필요한 공식 자료를 참고자료에 추가한 뒤 제목 기준 검수를 다시 실행하세요.',jobId);
     throw e;
   }
 }

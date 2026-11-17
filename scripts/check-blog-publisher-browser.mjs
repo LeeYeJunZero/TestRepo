@@ -245,7 +245,8 @@ try {
   });
   await sw.eval(`globalThis.realPostingApis={create:chrome.tabs.create,get:chrome.tabs.get,execute:chrome.scripting.executeScript};globalThis.imageAdapterMode='ok';globalThis.finalSends=0;globalThis.receivedImageData=null;chrome.tabs.create=async()=>({id:98765});chrome.tabs.get=async()=>({id:98765,url:'https://blog.naver.com/PostWriteForm.naver?blogId=testblog'});chrome.scripting.executeScript=async options=>{const cmd=options.args[0];let result={};if(cmd.op==='probe')result={ready:true};if(cmd.op==='fill')result={filled:true,bodyChars:100};if(cmd.op==='prepare-image')result={prepared:globalThis.imageAdapterMode==='ok'};if(cmd.op==='image-probe')result={inputReady:true,newImageReady:true};if(cmd.op==='attach-images'){globalThis.receivedImageData=cmd.images;result={attached:true,count:cmd.images.length};}if(cmd.op==='verify-post')result={valid:true};if(cmd.op==='draft'||cmd.op==='publish'){globalThis.finalSends++;result={saved:true,evidence:'테스트 저장 확인'};}return [{frameId:0,result}];};`);
   await check('예약 실행이 저장된 이미지 바이트를 전송한 뒤 임시저장',async()=>{
-    const r=await msg('enqueue',{content:{...c,title:'사진 포함 네이버 저장 테스트',action:'draft',blogId:'testblog',images:imageJob.content.images}});
+    const r=await msg('enqueue',{content:{...c,title:'사진 포함 네이버 저장 테스트',action:'draft',blogId:'https://m.blog.naver.com/testblog/123456789',images:imageJob.content.images}});
+    assert.equal(r.data.content.blogId,'testblog');
     await msg('pause',{paused:false});await msg('tick');
     await waitUntil(async()=> (await msg('state')).data.jobs.find(j=>j.id===r.data.id)?.status==='done');
     assert.equal(await sw.eval('globalThis.receivedImageData[0].data'),png);assert.equal(await sw.eval('globalThis.finalSends'),1);
@@ -262,6 +263,7 @@ try {
     await waitUntil(async()=> (await msg('state')).data.jobs.find(j=>j.id===r.data.id)?.status==='failed');
     assert.equal(await sw.eval('globalThis.createdReviewTabs'),0);assert.equal(await sw.eval('globalThis.finalSends'),0);
     const j=(await msg('state')).data.jobs.find(j=>j.id===r.data.id);assert.equal(j.content.review.status,'blocked');
+    assert.ok((await msg('state')).data.logs.some(l=>l.jobId===r.data.id && l.step==='REVIEW_HELP' && l.message.includes('네이버 전송 전에')));
     assert.ok((await msg('state')).data.drafts.some(d=>d.content.title==='근거 부족 제목' && d.content.body===c.body));
     await sw.eval(`globalThis.reviewMode='normal';globalThis.imageAdapterMode='ok'`);
   });
