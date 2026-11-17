@@ -36,15 +36,20 @@ async function updateJob(id, patch) {
   return mutate(s => {const j = s.jobs.find(j => j.id === id); if (j) Object.assign(j,patch,{updatedAt:Date.now()});});
 }
 async function inspectPost(c,signal,jobId='') {
+  if(await isReviewCurrent(c)) {
+    await log('info','REVIEW_PASS','동일 원고의 검수 통과 결과를 재사용했습니다. API 재호출 없음.',jobId);
+    return c;
+  }
   await saveDraft({...c,review:null});
   await log('info','REVIEW_START',`${PROVIDERS[c.provider].name} / ${c.model} · 기준 제목: ${c.title}`,jobId);
+  const started=Date.now();
   try {
     const result=await review(c,await getKey(c.provider),signal);
-    await log(result.review.changed ? 'warn':'success',result.review.changed ? 'REVIEW_FIXED':'REVIEW_PASS',result.review.summary,jobId);
+    await log(result.review.changed ? 'warn':'success',result.review.changed ? 'REVIEW_FIXED':'REVIEW_PASS',`${result.review.summary} · ${((Date.now()-started)/1000).toFixed(1)}초`,jobId);
     for(const issue of result.review.issues)await log('info','REVIEW_NOTE',issue,jobId);
     return result;
   }catch(e){
-    await log('error','REVIEW_BLOCKED',e.message,jobId);
+    await log('error','REVIEW_BLOCKED',`${e.message} · ${((Date.now()-started)/1000).toFixed(1)}초`,jobId);
     for(const issue of e.review?.issues || [])await log('warn','REVIEW_NOTE',issue,jobId);
     if(e.review)await log('info','REVIEW_HELP','검수 보류로 네이버 전송 전에 멈췄습니다. 원고를 불러와 제목·본문을 맞추거나 필요한 공식 자료를 참고자료에 추가한 뒤 제목 기준 검수를 다시 실행하세요.',jobId);
     throw e;

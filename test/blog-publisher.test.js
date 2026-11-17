@@ -112,6 +112,18 @@ test('BP-12 발행 완료 URL은 해당 블로그 글 주소만 인정',()=>{
   assert.ok(publishedUrl('https://blog.naver.com/PostView.naver?blogId=teacher&logNo=123456','teacher'));
   for (const u of ['https://evil.test/teacher/123456','https://blog.naver.com/other/123456','https://blog.naver.com/PostWriteForm.naver?blogId=teacher']) assert.equal(publishedUrl(u,'teacher'),null);
 });
+test('API 503은 한 번 재시도하고 지속 혼잡·취소를 구분',async()=>{
+  const busy=()=>new Response('{"error":{"message":"high demand"}}',{status:503});
+  let calls=0;
+  const models=await listModels('openai','key',async()=>++calls===1 ? busy():response({data:[{id:'mock-text'}]}));
+  assert.equal(calls,2);assert.equal(models[0].id,'mock-text');
+  calls=0;
+  await assert.rejects(()=>listModels('openai','key',async()=>{calls++;return busy();}),e=>e.status===503 && e.retryable && e.message.includes('모델의 서버가 혼잡'));
+  assert.equal(calls,2);
+  const ctrl=new AbortController();calls=0;
+  await assert.rejects(()=>generate(c,'key',ctrl.signal,async()=>{calls++;ctrl.abort();return busy();}),e=>e.status===503);
+  assert.equal(calls,1);
+});
 test('BP-13 이미지 내용 확인·가짜 확장자·SVG 거부',()=>{
   assert.equal(imageType(new Uint8Array([137,80,78,71,13,10,26,10])),'image/png');
   assert.equal(imageType(new Uint8Array([255,216,255])),'image/jpeg');
@@ -177,6 +189,17 @@ test('BP-20 본문 순서·끝 첨부·백업·중복 판정에 위치 반영',a
 });
 const checkedReply=(input,extra={})=>({title:input.title,body:input.body,tags:input.tags,approved:true,
   checks:{titleMatch:true,scopeMatch:true,personaMatch:true},issues:[],summary:'제목과 본문 일치',...extra});
+test('수정 없는 짧은 검수 응답은 원문·이미지 표시·태그를 그대로 보존',async()=>{
+  const input={...c,body:'A[[1]]B',images:[fi]},reply=checkedReply(input,{unchanged:true});
+  delete reply.body;delete reply.tags;
+  const result=await parseReviewReply(JSON.stringify(reply),input);
+  assert.equal(result.body,input.body);assert.deepEqual(result.tags,input.tags);
+  assert.equal(result.review.changed,false);assert.equal(await isReviewCurrent({...input,...result}),true);
+  assert.ok(JSON.stringify(reply).length<JSON.stringify(checkedReply({...input,body:'가'.repeat(1800)})).length);
+  for(const patch of [{approved:false},{checks:{titleMatch:false,scopeMatch:true,personaMatch:true}},{body:'수정된 원고'},{tags:['수정 태그']},{issues:['교정 필요']}])
+    await assert.rejects(()=>parseReviewReply(JSON.stringify({...reply,...patch}),input));
+  await assert.rejects(()=>parseReviewReply(JSON.stringify({...reply,unchanged:undefined}),input));
+});
 test('공유한 블로그 주소에서 ID만 추출하고 외부 주소·잘못된 ID는 거부',()=>{
   for(const value of ['testblog','https://blog.naver.com/testblog','https://m.blog.naver.com/testblog/123456789','blog.naver.com/testblog','https://blog.naver.com/PostView.naver?blogId=testblog&logNo=123456789']) {
     assert.equal(normalizeBlogId(value),'testblog');

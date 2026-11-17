@@ -9,7 +9,7 @@ function auth(provider, key) {
   if (provider === 'gemini') return {'x-goog-api-key':key};
   return {Authorization:`Bearer ${key}`};
 }
-async function request(provider, key, path, body, signal, fetcher = fetch) {
+async function requestOnce(provider, key, path, body, signal, fetcher = fetch) {
   if (!Object.hasOwn(PROVIDERS, provider) || !key) throw new ApiError('API 제공자와 키를 설정하세요.');
   let response;
   try {
@@ -23,9 +23,23 @@ async function request(provider, key, path, body, signal, fetcher = fetch) {
     throw new ApiError(`API 연결 실패: ${redact(e.message,[key])}`, true);
   }
   const data = await response.json().catch(() => ({}));
-  if (!response.ok) throw new ApiError(`API ${response.status}: ${redact(data.error?.message || '요청 실패',[key]).slice(0,500)}`,
-    response.status === 429 || response.status >= 500);
+  if (!response.ok) {
+    const error=new ApiError(response.status===503
+      ? 'API 503: 선택한 모델의 서버가 혼잡합니다. 잠시 후 다시 시도하거나 API 모델을 변경하세요. 원고는 유지됩니다.'
+      : `API ${response.status}: ${redact(data.error?.message || '요청 실패',[key]).slice(0,500)}`,
+      response.status === 429 || response.status >= 500);
+    error.status=response.status;throw error;
+  }
   return data;
+}
+async function request(provider,key,path,body,signal,fetcher=fetch) {
+  try{return await requestOnce(provider,key,path,body,signal,fetcher);}
+  catch(e){
+    if(e.status!==503 || signal?.aborted)throw e;
+    await new Promise(resolve=>setTimeout(resolve,1000));
+    if(signal?.aborted)throw new ApiError('작업을 중단했습니다.');
+    return requestOnce(provider,key,path,body,signal,fetcher);
+  }
 }
 export async function listModels(provider, key, fetcher = fetch) {
   let list = [], cursor = '';

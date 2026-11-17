@@ -83,6 +83,7 @@ try {
             approved:mode!=='blocked',checks:{titleMatch:mode!=='blocked',scopeMatch:mode!=='blocked',personaMatch:true},
             issues:mode==='blocked' ? ['제목을 뒷받침할 자료 부족']:changed ? ['짜파게티 제품 조리법을 제목에 맞는 짜장면 조리 설명으로 수정']:[],
             summary:mode==='blocked' ? '자료 부족으로 검수 중단':changed ? '제목과 다른 조리법 교정':'제목·본문 일치 검수 통과'};
+          if(mode==='compact'){result.unchanged=true;delete result.body;delete result.tags;}
         }else{globalThis.draftCalls++;result={title:'모의 생성 제목',body:'모의 생성 본문',tags:['영어']};}
         return new Response(JSON.stringify({status:'completed',output:[{content:[{type:'output_text',text:JSON.stringify(result)}]}]}),{status:200});
       };
@@ -274,6 +275,18 @@ try {
     await waitUntil(async()=> (await msg('state')).data.jobs.find(j=>j.id===r.data.id)?.status==='done');assert.equal(await sw.eval('globalThis.reviewCalls'),before);
     const changed=await msg('enqueue',{content:{...source,...checked,title:'수정한 검수 제목',action:'draft',blogId:'testblog'}});await msg('tick');
     await waitUntil(async()=> (await msg('state')).data.jobs.find(j=>j.id===changed.data.id)?.status==='done');assert.equal(await sw.eval('globalThis.reviewCalls'),before+1);
+  });
+  await check('짧은 검수 판정·수동 재검수 캐시·검수 시간 로그',async()=>{
+    await sw.eval(`globalThis.reviewMode='compact'`);
+    const source={...c,title:'짧은 검수 응답 테스트'},checked=(await msg('review',{content:source})).data;
+    assert.equal(checked.body,source.body);assert.equal(checked.review.changed,false);
+    const before=await sw.eval('globalThis.reviewCalls');
+    assert.equal((await msg('review',{content:{...source,...checked}})).ok,true);
+    assert.equal(await sw.eval('globalThis.reviewCalls'),before);
+    await msg('review',{content:{...source,...checked,references:'추가 참고자료'}});
+    assert.equal(await sw.eval('globalThis.reviewCalls'),before+1);
+    assert.ok((await msg('state')).data.logs.some(l=>l.step==='REVIEW_PASS' && /· \d+\.\d초/.test(l.message)));
+    await sw.eval(`globalThis.reviewMode='normal'`);
   });
   await sw.eval(`chrome.tabs.create=globalThis.realPostingApis.create;chrome.tabs.get=globalThis.realPostingApis.get;chrome.scripting.executeScript=globalThis.realPostingApis.execute;delete globalThis.realPostingApis;`);
   await ui.call('Emulation.setDeviceMetricsOverride',{width:1440,height:1120,deviceScaleFactor:1,mobile:false});
