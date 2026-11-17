@@ -263,6 +263,11 @@ async function dispatch(m) {
       const d = await saveDraft(m.content);await log('info','DRAFT','로컬 임시저장 완료');return d;
     }
     case 'delete-draft': return mutate(s => {s.drafts = s.drafts.filter(d => d.id !== m.id);});
+    case 'delete-job': return mutate(s=>{
+      const j=s.jobs.find(j=>j.id===m.id);if(!j)return true;
+      if(RUNNING.includes(j.status) || active?.id===j.id)throw new Error('실행 중인 작업은 먼저 취소하고 중단된 뒤 삭제하세요.');
+      s.jobs=s.jobs.filter(j=>j.id!==m.id);return true;
+    });
     case 'key': {
       if (!Object.hasOwn(PROVIDERS,m.provider)) throw new Error('알 수 없는 제공자입니다.');
       const key = String(m.key || '').trim();
@@ -296,8 +301,9 @@ async function dispatch(m) {
       const hold = setInterval(() => chrome.runtime.getPlatformInfo().catch(() => {}),20000);
       try {
         const draft = await generate(c,await getKey(c.provider));
-        await log('info','GENERATE',`초안 ${draft.body.length}자 작성 완료 · 제목 기준 검수를 시작합니다.`);
-        return await inspectPost({...c,...draft,review:null});
+        const result={...c,...draft,review:null};await saveDraft(result);
+        await log('success','GENERATE',`초안 ${draft.body.length}자 작성 완료 · 편집 후 제목 기준 검수를 실행하세요.`);
+        return result;
       } finally {clearInterval(hold);}
     }
     case 'review': {

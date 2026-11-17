@@ -90,8 +90,8 @@ try {
     }
     await sw.eval(`(${installFetchMock.toString()})()`);
     const models=await msg('models',{provider:'openai'});assert.equal(models.data[0].id,'mock-text');
-    const out=await msg('generate',{content:c});assert.equal(out.data.title,c.title);assert.equal(out.data.review.status,'approved');
-    assert.deepEqual(await sw.eval('[globalThis.draftCalls,globalThis.reviewCalls]'),[1,1]);initialDraftCount=(await msg('state')).data.drafts.length;
+    const out=await msg('generate',{content:c});assert.equal(out.data.title,c.title);assert.equal(out.data.review,null);
+    assert.deepEqual(await sw.eval('[globalThis.draftCalls,globalThis.reviewCalls]'),[1,0]);initialDraftCount=(await msg('state')).data.drafts.length;
     assert.equal(await sw.eval('(async () => (await chrome.storage.local.get("apiKeys")).apiKeys?.openai || null)()'),null);
   });
   await check('실제 키 적용 버튼·모델 조회가 현재 버전에서 동작',async()=>{
@@ -152,6 +152,13 @@ try {
     await msg('composer',{content:{...c,title:'수정된 원고'}});
     const duplicate=await msg('enqueue',{content:c,schedule:{mode:'delay',seconds:3}});assert.equal(duplicate.ok,false);
     await sleep(2200);const s=(await msg('state')).data;assert.equal(s.jobs[0].status,'queued');assert.equal(s.jobs[0].content.title,c.title);
+  });
+  await check('대기 예약 개별 삭제 후 실행 안 됨·다른 작업 유지',async()=>{
+    const r=await msg('enqueue',{content:{...c,title:'삭제할 예약'},schedule:{mode:'delay',hours:1}});
+    const before=(await msg('state')).data.jobs.length;
+    assert.equal((await msg('delete-job',{id:r.data.id})).ok,true);
+    const s=(await msg('state')).data;assert.equal(s.jobs.length,before-1);assert.ok(!s.jobs.some(j=>j.id===r.data.id));
+    assert.equal((await msg('delete-job',{id:r.data.id})).ok,true);
   });
   await check('예약 재개·로컬 저장 단일 실행',async()=>{
     await msg('pause',{paused:false});await msg('tick');
@@ -251,7 +258,7 @@ try {
   await check('페이지 재시작·예약 원고 불러오기에서 첨부 복원',async()=>{
     await ui.call('Page.reload');await waitUntil(()=>ui.eval('document.getElementById("timeZone")?.textContent'));
     await waitUntil(()=>ui.eval(`!![...document.querySelectorAll('.job h3')].find(e=>e.textContent==='이미지 예약')`));
-    await ui.eval(`(()=>{const h=[...document.querySelectorAll('.job h3')].find(e=>e.textContent==='이미지 예약');h.closest('.job').querySelector('button').click()})()`);
+    await ui.eval(`(()=>{const h=[...document.querySelectorAll('.job h3')].find(e=>e.textContent==='이미지 예약');[...h.closest('.job').querySelectorAll('button')].find(b=>b.textContent==='원고 불러오기').click()})()`);
     await waitUntil(()=>ui.eval(`document.getElementById('imageCount').textContent==='1 / 10장' && document.querySelector('#imageList img')?.naturalWidth===2`));
     await ui.eval(`globalThis.imageTest=import(chrome.runtime.getURL('images.js'))`);
   });

@@ -49,7 +49,7 @@ async function renderReview() {
   let current=false;try{current=!!reviewInfo && await isReviewCurrent(content());}catch(e){if(e instanceof DashboardLayoutError)throw e;}
   if(epoch!==reviewEpoch)return;
   $('reviewStatus').textContent=!reviewInfo ? '검수 전':reviewInfo.status==='blocked' ? '검수 미통과':!current ? '수정 후 재검수 필요':reviewInfo.changed ? '교정 후 통과':'검수 통과';
-  $('reviewSummary').textContent=reviewInfo ? `기준 제목: ${reviewInfo.title} · ${reviewInfo.summary}${!current && reviewInfo.status==='approved' ? ' · 이전 검수 결과이며 현재 수정본은 재검수가 필요합니다.':''}`:'AI 생성 후 자동 검수합니다. 직접 쓴 글도 이 버튼으로 검수하거나 네이버 작업 직전에 검수할 수 있습니다.';
+  $('reviewSummary').textContent=reviewInfo ? `기준 제목: ${reviewInfo.title} · ${reviewInfo.summary}${!current && reviewInfo.status==='approved' ? ' · 이전 검수 결과이며 현재 수정본은 재검수가 필요합니다.':''}`:'초안 작성 후 별도로 검수합니다. 직접 쓴 글도 이 버튼으로 검수하거나 네이버 작업 직전에 검수할 수 있습니다.';
   $('reviewIssues').replaceChildren(...(reviewInfo?.issues || []).map(s=>node('li',s)));
   $('reviewBefore').hidden=!reviewInfo?.originalBody;$('reviewOriginal').textContent=reviewInfo?.originalBody || '';
 }
@@ -83,6 +83,7 @@ function renderJobs() {
     if (j.result) box.append(node('p',j.result.message));
     if(j.content.review)box.append(node('p',`검수: ${j.content.review.summary}`));
     const actions = node('div','','job-actions');
+    if(!RUNNING.includes(j.status))actions.append(btn('작업 삭제',async()=>{if(!confirm('이 작업 기록을 삭제할까요? 예약 대기 중이면 실행되지 않습니다. 네이버 게시글은 삭제되지 않습니다.'))return;await send('delete-job',{id:j.id});await refresh();notify('작업 기록을 삭제했습니다.');}));
     actions.append(btn('원고 불러오기',async () => {await replaceComposer(j.content);panel('write');}));
     if (j.status === 'queued' || RUNNING.includes(j.status)) actions.append(btn('작업 취소',async () => {await send('cancel',{id:j.id});await refresh();}));
     if (j.status === 'failed' && !j.tabId) actions.append(btn('재시도',async () => {await send('retry',{id:j.id});await refresh();}));
@@ -265,13 +266,13 @@ bind('forgetKey',async () => {await send('forget-key',{provider:$('provider').va
 bind('loadModels',loadModels);
 async function runAi(mode) {
   if (generating) return;
-  const epoch = generationEpoch,c = content();generating=true;$('generate').disabled=true;$('reviewPost').disabled=true;$('generating').textContent=mode==='generate' ? '초안 작성 → 제목 기준 페르소나 검수·교정을 진행합니다…':'제목을 기준으로 본문을 검수·교정하고 있습니다…';
+  const epoch = generationEpoch,c = content();generating=true;$('generate').disabled=true;$('reviewPost').disabled=true;$('generating').textContent=mode==='generate' ? '초안을 작성하고 있습니다. 완료되면 바로 편집할 수 있습니다…':'제목을 기준으로 본문을 검수·교정하고 있습니다…';
   try {
     if(mode==='generate' && c.body)await send('draft',{content:c});
     const result = await send(mode,{content:c});
     if (epoch !== generationEpoch) {
       await send('draft',{content:{...c,...result}});notify('AI 작업 중 원고가 변경되어 검수 결과를 임시저장했습니다.');
-    } else {load({...c,...result});await persist();notify(result.review.changed ? '제목에 맞게 본문을 교정했습니다. 수정 이유를 확인하세요.':'제목·본문 일치 검수를 통과했습니다.');}
+    } else {load({...c,...result});await persist();notify(!result.review ? '초안 작성 완료. 편집 후 제목 기준 검수를 실행하세요.':result.review.changed ? '제목에 맞게 본문을 교정했습니다. 수정 이유를 확인하세요.':'제목·본문 일치 검수를 통과했습니다.');}
     await refresh();
   }catch(e){if(e instanceof DashboardLayoutError)throw e;if(epoch===generationEpoch){reviewInfo=e.review || null;changed=true;await persist();launch(renderReview);}await refresh();throw new Error(e.message+' · 원고·임시저장 목록을 확인하세요.');}
   finally {generating=false;$('generate').disabled=false;$('reviewPost').disabled=false;$('generating').textContent='';}
