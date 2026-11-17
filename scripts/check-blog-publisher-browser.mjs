@@ -127,6 +127,25 @@ try {
     assert.equal(await ui.eval('document.getElementById("previewTitle").querySelectorAll("img").length'),0);
     await ui.eval('document.getElementById("preview").close()');
   });
+  await check('동시에 서로 다른 제공자 키 저장·삭제해도 다른 키 보존',async()=>{
+    const replies=await ui.eval(`Promise.all(['gemini','anthropic'].map(provider=>chrome.runtime.sendMessage({cmd:'key',provider,key:'mock-'+provider,remember:true,clientVersion:${JSON.stringify(clientVersion)}})))`);
+    assert.ok(replies.every(r=>r.ok));
+    let s=(await msg('state')).data;assert.equal(s.keyStored.gemini,true);assert.equal(s.keyStored.anthropic,true);
+    await msg('forget-key',{provider:'gemini'});s=(await msg('state')).data;
+    assert.equal(s.keyStatus.gemini,false);assert.equal(s.keyStored.anthropic,true);assert.equal(s.keyStored.openai,true);
+  });
+  await check('예약 등록 대기 중 편집·연타해도 클릭 당시 원고 한 건만 등록',async()=>{
+    await msg('pause',{paused:true});
+    await ui.eval(`globalThis.savedSend=chrome.runtime.sendMessage;chrome.runtime.sendMessage=async m=>{if(m.cmd==='composer')await new Promise(r=>setTimeout(r,400));return globalThis.savedSend(m)};document.getElementById('action').value='local';document.getElementById('title').value='클릭 당시 원고';document.getElementById('body').value='클릭 당시 본문';document.getElementById('runNow').click();document.getElementById('runNow').click();`);
+    await sleep(50);
+    await ui.eval(`document.getElementById('title').value='대기 중 수정';document.getElementById('title').dispatchEvent(new Event('input'))`);
+    await waitUntil(()=>ui.eval(`!document.getElementById('runNow').disabled`));
+    await ui.eval(`chrome.runtime.sendMessage=globalThis.savedSend;delete globalThis.savedSend`);
+    const jobs=(await msg('state')).data.jobs.filter(j=>j.content.title==='클릭 당시 원고');assert.equal(jobs.length,1);
+    assert.equal(jobs[0].content.body,'클릭 당시 본문');assert.equal(await ui.eval(`document.getElementById('title').value`),'대기 중 수정');
+    await msg('cancel',{id:jobs[0].id});
+    await msg('clean');
+  });
   await check('예약 일시정지·복사본 보관·중복 등록 차단',async()=>{
     await msg('pause',{paused:true});
     const r=await msg('enqueue',{content:c,schedule:{mode:'delay',seconds:2}});assert.equal(r.ok,true);
@@ -187,6 +206,16 @@ try {
   await check('본문 수정 시 검수 무효화 표시',async()=>{
     await ui.eval(`document.getElementById('body').value+=' 추가';document.getElementById('body').dispatchEvent(new Event('input'))`);
     await waitUntil(()=>ui.eval(`document.getElementById('reviewStatus').textContent==='수정 후 재검수 필요'`));
+  });
+  await check('기존 원고 백업 대기 중 작성 연타는 API 한 번만 호출',async()=>{
+    await sw.eval(`globalThis.reviewMode='normal'`);
+    const before=await sw.eval('globalThis.draftCalls');
+    await ui.eval(`globalThis.savedSend=chrome.runtime.sendMessage;chrome.runtime.sendMessage=async m=>{if(m.cmd==='draft')await new Promise(r=>setTimeout(r,300));return globalThis.savedSend(m)};document.getElementById('generate').click();document.getElementById('generate').click()`);
+    await waitUntil(()=>ui.eval(`document.getElementById('generate').disabled`));
+    await waitUntil(()=>ui.eval(`!document.getElementById('generate').disabled`));
+    await ui.eval(`chrome.runtime.sendMessage=globalThis.savedSend;delete globalThis.savedSend`);
+    assert.equal(await sw.eval('globalThis.draftCalls'),before+1);
+    await ui.eval(`document.getElementById('body').value+=' 수정';document.getElementById('body').dispatchEvent(new Event('input'))`);
   });
   await check('검수 중 직접 수정한 원고를 결과가 덮어쓰지 않음',async()=>{
     await sw.eval(`globalThis.reviewMode='delay'`);

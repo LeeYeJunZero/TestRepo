@@ -10,6 +10,7 @@ const $ = id => requiredElement(id);
 let halted=false;const intervals=[];
 let state = {jobs:[],drafts:[],logs:[],keyStatus:{}}, changed = false, lastAuto = Date.now(), fetching = false;
 let generating = false, generationEpoch = 0, timerNotice;
+let enqueueing=false;
 let attachments=[],imagesBusy=false,folderFiles=[],folderSelection=new Set(),imageEpoch=0;
 let reviewInfo=null,reviewEpoch=0;
 const imageURLs=new Map();
@@ -130,8 +131,8 @@ async function refresh() {
     state = await send('state');renderJobs();renderDrafts();renderLogs();updateKeyStatus();
   } finally {fetching = false;}
 }
-async function persist() {
-  const snapshot = content(),serialized = JSON.stringify(snapshot);
+async function persist(snapshot=content()) {
+  const serialized = JSON.stringify(snapshot);
   await send('composer',{content:snapshot});
   if (serialized === JSON.stringify(content())) changed = false;
   lastAuto = Date.now();$('saveStatus').textContent = `${new Date().toLocaleTimeString('ko-KR',{hour12:false})} 자동저장`;
@@ -148,8 +149,12 @@ async function loadModels() {
 }
 async function enqueue(schedule) {
   if (generating) throw new Error('AI 작성·검수가 끝난 뒤 작업을 등록하세요.');
-  await persist();const job = await send('enqueue',{content:content(),schedule});
-  notify(`작업 등록 완료 · ${date(job.scheduledAt)}`);await refresh();panel('queue');
+  if(enqueueing)return;
+  const snapshot=content();enqueueing=true;$('runNow').disabled=true;$('schedule').disabled=true;
+  try {
+    await persist(snapshot);const job = await send('enqueue',{content:snapshot,schedule});
+    notify(`작업 등록 완료 · ${date(job.scheduledAt)}`);await refresh();panel('queue');
+  }finally{enqueueing=false;$('runNow').disabled=false;$('schedule').disabled=false;}
 }
 function download(name,text,type) {
   const url = URL.createObjectURL(new Blob([text],{type}));const a = document.createElement('a');a.href=url;a.download=name;a.click();setTimeout(() => URL.revokeObjectURL(url),5000);
@@ -260,9 +265,9 @@ bind('forgetKey',async () => {await send('forget-key',{provider:$('provider').va
 bind('loadModels',loadModels);
 async function runAi(mode) {
   if (generating) return;
-  if (mode==='generate' && $('body').value) await send('draft',{content:content()});
   const epoch = generationEpoch,c = content();generating=true;$('generate').disabled=true;$('reviewPost').disabled=true;$('generating').textContent=mode==='generate' ? '초안 작성 → 제목 기준 페르소나 검수·교정을 진행합니다…':'제목을 기준으로 본문을 검수·교정하고 있습니다…';
   try {
+    if(mode==='generate' && c.body)await send('draft',{content:c});
     const result = await send(mode,{content:c});
     if (epoch !== generationEpoch) {
       await send('draft',{content:{...c,...result}});notify('AI 작업 중 원고가 변경되어 검수 결과를 임시저장했습니다.');

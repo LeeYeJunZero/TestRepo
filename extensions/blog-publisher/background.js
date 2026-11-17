@@ -9,6 +9,8 @@ import {openDashboard} from './client.js';
 const DB = 'postingStudio';
 const empty = () => ({composer:{},drafts:[],jobs:[],logs:[],settings:{},paused:false});
 let serial = Promise.resolve(), busy = false, active = null, timer;
+let keySerial=Promise.resolve();
+function changeKeys(fn){const task=keySerial.then(fn);keySerial=task.catch(()=>{});return task;}
 function mutate(fn) {
   const next = serial.then(async () => {
     const state = (await chrome.storage.local.get(DB))[DB] || empty();
@@ -265,19 +267,23 @@ async function dispatch(m) {
       if (!Object.hasOwn(PROVIDERS,m.provider)) throw new Error('알 수 없는 제공자입니다.');
       const key = String(m.key || '').trim();
       if (!key || key.length > 1000 || /\s/.test(key)) throw new Error('API 키를 확인하세요.');
+      await changeKeys(async()=>{
       const destination=m.remember ? chrome.storage.local:chrome.storage.session;
       const other=m.remember ? chrome.storage.session:chrome.storage.local;
       const keys=(await destination.get('apiKeys')).apiKeys || {};
       keys[m.provider]=key;await destination.set({apiKeys:keys});
       const previous=(await other.get('apiKeys')).apiKeys || {};delete previous[m.provider];
       await other.set({apiKeys:previous});
+      });
       await log('info','KEY',`${PROVIDERS[m.provider].name} 키 설정 · ${m.remember ? '이 기기에 보관':'크롬 세션 동안만 보관'}`);
       return true;
     }
     case 'forget-key': {
+      if(!Object.hasOwn(PROVIDERS,m.provider))throw new Error('알 수 없는 제공자입니다.');
+      await changeKeys(async()=>{
       for (const area of [chrome.storage.local,chrome.storage.session]) {
         const keys = (await area.get('apiKeys')).apiKeys || {};delete keys[m.provider];await area.set({apiKeys:keys});
-      } return true;
+      }}); return true;
     }
     case 'models': {
       const list = await listModels(m.provider,await getKey(m.provider));
