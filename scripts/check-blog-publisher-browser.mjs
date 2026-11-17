@@ -97,12 +97,23 @@ try {
   await check('실제 키 적용 버튼·모델 조회가 현재 버전에서 동작',async()=>{
     await ui.eval(`document.getElementById('apiKey').value='test-only-key';document.getElementById('saveKey').click()`);
     await waitUntil(()=>ui.eval(`document.getElementById('apiKey').value==='' && document.getElementById('models').options.length===2`));
-    assert.ok(await ui.eval(`document.getElementById('keyStatus').textContent.includes('키 설정됨')`));
+    assert.ok(await ui.eval(`document.getElementById('keyStatus').textContent.includes('키 기기 저장됨')`));
   });
   await check('이전 화면 버전의 키 변경 요청을 거부',async()=>{
     const r=await ui.eval(`chrome.runtime.sendMessage({cmd:'key',provider:'openai',key:'must-not-save',clientVersion:'1.1.0'})`);
     assert.equal(r.ok,false);assert.equal(r.code,'VERSION_MISMATCH');
-    assert.equal(await sw.eval(`(async()=>(await chrome.storage.session.get('apiKeys')).apiKeys.openai)()`),'test-only-key');
+    assert.equal(await sw.eval(`(async()=>(await chrome.storage.local.get('apiKeys')).apiKeys.openai)()`),'test-only-key');
+  });
+  await check('기기 저장 키는 세션 초기화·화면 재로드 후 보관 옵션과 함께 유지',async()=>{
+    await sw.eval(`chrome.storage.session.remove('apiKeys')`);
+    await ui.call('Page.reload');
+    await waitUntil(()=>ui.eval(`document.getElementById('keyStatus').textContent.includes('키 기기 저장됨')`));
+    assert.equal(await ui.eval(`document.getElementById('rememberKey').checked`),true);
+    const saved=(await msg('state')).data;
+    assert.equal(saved.keyStored.openai,true);assert.ok(!JSON.stringify(saved).includes('test-only-key'));
+    await ui.eval(`document.getElementById('apiKey').value='test-only-key';document.getElementById('saveKey').click()`);
+    await waitUntil(()=>ui.eval(`document.getElementById('apiKey').value==='' && !document.getElementById('saveKey').disabled`));
+    assert.equal((await msg('state')).data.keyStored.openai,true);
   });
   await check('키 적용 중 연결 끊김은 화면 안내로 처리',async()=>{
     await ui.eval(`globalThis.originalStudioSend=chrome.runtime.sendMessage;chrome.runtime.sendMessage=()=>{throw new Error('Extension context invalidated.')};document.getElementById('apiKey').value='test-only-key';document.getElementById('saveKey').click()`);

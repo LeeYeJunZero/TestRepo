@@ -63,7 +63,7 @@ function btn(label, fn) {
 function date(t) {return new Date(t).toLocaleString('ko-KR',{hour12:false});}
 function updateKeyStatus() {
   const p = $('provider').value;
-  $('keyStatus').textContent = `${PROVIDERS[p].name} · ${state.keyStatus[p] ? '키 설정됨':'키 필요'}`;
+  $('keyStatus').textContent = `${PROVIDERS[p].name} · ${state.keyStatus[p] ? state.keyStored?.[p] ? '키 기기 저장됨':'키 세션 보관 중':'키 필요'}`;
   launch(renderReview);
 }
 function renderJobs() {
@@ -242,14 +242,19 @@ for (const b of document.querySelectorAll('[data-panel]')) b.addEventListener('c
 for (const b of document.querySelectorAll('[data-persona]')) b.addEventListener('click',() => {$('persona').value=b.dataset.persona;changed=true;generationEpoch++;});
 for (const id of fields) $(id).addEventListener('input',() => {changed=true;generationEpoch++;updateCount();});
 $('provider').addEventListener('change',() => {
+  $('rememberKey').checked=state.keyStatus[$('provider').value] ? !!state.keyStored?.[$('provider').value]:true;
   $('model').value='';$('models').replaceChildren(new Option('이 제공자의 목록을 새로 불러오세요',''));$('apiKey').value='';updateKeyStatus();
 });
 $('models').addEventListener('change',() => {$('model').value=$('models').value;changed=true;generationEpoch++;});
 $('scheduleMode').addEventListener('change',() => {$('atBox').hidden=$('scheduleMode').value!=='at';$('delayBox').hidden=$('scheduleMode').value!=='delay';});
 for (const id of ['logView','logLevel','logSearch']) $(id).addEventListener('input',renderLogs);
 bind('saveKey',async () => {
+  $('saveKey').disabled=true;
+  try {
   await send('key',{provider:$('provider').value,key:$('apiKey').value,remember:$('rememberKey').checked});
-  $('apiKey').value='';await refresh();await loadModels();
+  $('apiKey').value='';await refresh();
+  try{await loadModels();}catch(e){notify('키 저장은 완료됐습니다. 모델 목록 조회 실패: '+e.message,true);}
+  }finally{$('saveKey').disabled=false;}
 });
 bind('forgetKey',async () => {await send('forget-key',{provider:$('provider').value});$('apiKey').value='';await refresh();notify('해당 제공자의 API 키를 삭제했습니다.');});
 bind('loadModels',loadModels);
@@ -312,6 +317,7 @@ for (const id of preferenceIds) $(id).addEventListener('change',async () => {
 async function init() {
   await refresh();
   load(normalizeComposer(state.composer));changed=false;
+  $('rememberKey').checked=state.keyStatus[$('provider').value] ? !!state.keyStored?.[$('provider').value]:true;
   const prefs=(await chrome.storage.local.get('studioPrefs')).studioPrefs;
   if (prefs) for (const id of preferenceIds) if (prefs[id]!==undefined) $(id)[id==='autoSave'?'checked':'value']=prefs[id];
   const next=new Date(Date.now()+300000);next.setMilliseconds(0);$('at').value=new Date(next.getTime()-next.getTimezoneOffset()*60000).toISOString().slice(0,19);
