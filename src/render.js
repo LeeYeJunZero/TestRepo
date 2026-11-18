@@ -190,10 +190,8 @@ ${site.notice ? `<div class="notice" role="status"><div class="wrap">${esc(site.
       <span></span><span></span><span></span>
     </button>
     <nav class="nav-links" aria-label="주요 메뉴">
-      <a href="#worries">고민 해결</a>
-      <a href="#exams">내신·모의고사</a>
+      <a href="#courses">수업과정</a>
       ${opts.schoolRegions?.length ? '<a href="schools/">학교별 과외</a>' : ''}
-      <a href="#courses">수업 과정</a>
       <a href="#tutors">선생님</a>
       <a href="#faq">FAQ</a>
       <a class="btn btn-primary" href="#apply" data-lead-open>무료 학습 30분</a>
@@ -497,10 +495,8 @@ ${FONT}
     <a class="brand" href="${root}"><span class="brand-mark">${esc(site.heroSymbol)}</span><span>${esc(site.name)}</span></a>
     <button class="nav-toggle" type="button" aria-label="메뉴 열기" aria-expanded="false"><span></span><span></span><span></span></button>
     <nav class="nav-links" aria-label="주요 메뉴">
-      <a href="${root}#worries">고민 해결</a>
-      <a href="${root}#exams">내신·모의고사</a>
+      <a href="${root}#courses">수업과정</a>
       <a class="active" href="${root}schools/">학교별 과외</a>
-      <a href="${root}#courses">수업 과정</a>
       <a href="${root}#tutors">선생님</a>
       <a href="${root}#faq">FAQ</a>
       <a class="btn btn-primary" href="${root}#apply">무료 학습 30분</a>
