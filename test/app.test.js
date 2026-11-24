@@ -394,3 +394,19 @@ test('R-16 텔레그램 봇: 페어링·상담 알림·버튼 처리·클릭 묶
   assert.equal((await fetch(BASE + '/api/admin/me', { headers: { cookie, 'cf-connecting-ip': '1.2.3.4' } })).status, 404);
   assert.equal((await fetch(BASE + '/admin/', { headers: { 'cf-connecting-ip': '1.2.3.4' } })).status, 404);
 });
+
+test('R-17 겨울방학 특강: 카드는 과정별 페이지로, 페이지마다 8주 커리큘럼', async () => {
+  const { renderSite, renderWinterProgram } = await import('../src/render.js');
+  const { DEFAULT_SITE, WINTER_CURRICULUM } = await import('../src/defaults.js');
+  const site = { key: 'x', ...DEFAULT_SITE.data };
+  const home = renderSite(site, {});
+  for (const p of site.winterPrograms) {
+    assert.ok(WINTER_CURRICULUM[p.slug], p.slug);
+    assert.ok(home.includes(`href="winter/${p.slug}/"`), p.slug);
+    const page = renderWinterProgram(site, p, {});
+    assert.equal((page.match(/class="cw-week"/g) || []).length, 8);
+    assert.ok(page.includes('href="../../#apply"'));
+  }
+  // 커리큘럼이 없는 과정(어드민에서 추가)은 신청 팝업으로
+  assert.ok(renderSite({ ...site, winterPrograms: [{ icon: 'x', title: '새 특강', target: 't', desc: 'd' }] }, {}).includes('href="#apply" data-lead-open><span class="winter-icon"'));
+});

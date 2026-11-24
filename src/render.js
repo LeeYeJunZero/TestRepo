@@ -1,4 +1,4 @@
-import { DEFAULT_SITE, SUBJECTS, SUBJECT_NAME } from './defaults.js';
+import { DEFAULT_SITE, SUBJECTS, SUBJECT_NAME, WINTER_CURRICULUM } from './defaults.js';
 import { describeSchool, studyGuide } from './school-guide.js';
 
 const ESC = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' };
@@ -246,7 +246,7 @@ ${site.notice ? `<div class="notice" role="status"><div class="wrap">${esc(site.
       <h2 class="section-title">겨울방학 특강 · 1:1 윈터스쿨</h2>
       <p class="section-sub">방학은 다음 학기 성적이 갈리는 시간입니다. 학년과 목표에 맞춰 선행·복습·수능 대비를 1:1로 설계합니다.</p>
       <div class="grid winter-grid">
-        ${winter.map((w) => `<a class="card winter-card" href="#apply" data-lead-open><span class="winter-icon" aria-hidden="true">${esc(w.icon)}</span><span class="winter-target">${esc(w.target)}</span><h3>${esc(w.title)}</h3><p>${esc(w.desc)}</p></a>`).join('')}
+        ${winter.map((w) => `<a class="card winter-card" ${WINTER_CURRICULUM[w.slug] ? `href="winter/${esc(w.slug)}/"` : 'href="#apply" data-lead-open'}><span class="winter-icon" aria-hidden="true">${esc(w.icon)}</span><span class="winter-target">${esc(w.target)}</span><h3>${esc(w.title)}</h3><p>${esc(w.desc)}</p></a>`).join('')}
       </div>
       ${winterKw?.length ? `<ul class="winter-keys" aria-label="겨울방학 특강 키워드">${winterKw.map((k) => `<li>#${esc(k)}</li>`).join('')}</ul>` : ''}
       <div class="band-cta"><a class="btn btn-primary btn-lg" href="#apply" data-lead-open>겨울방학 특강 무료 학습 30분 신청</a></div>
@@ -508,7 +508,7 @@ export function schoolCitiesOf(region, list) {
 
 const count = (n) => n.toLocaleString('ko-KR');
 
-function schoolPage(site, { title, desc, path: pagePath, root, crumbs, h1, lead, heroCta = '', body }, opts) {
+function schoolPage(site, { title, desc, path: pagePath, root, crumbs, h1, lead, heroCta = '', body, active = 'schools', source }, opts) {
   const A = `${root}assets`;
   const url = opts.canonical ? opts.canonical + encodeURI(pagePath) : '';
   return `<!doctype html>
@@ -526,10 +526,11 @@ ${url ? `<link rel="canonical" href="${esc(url)}">
 <meta property="og:site_name" content="${esc(site.name)}">
 <meta property="og:title" content="${esc(title)}">
 <meta property="og:description" content="${esc(desc)}">
-<meta name="theme-color" content="#6750a4">
+<meta name="theme-color" content="${esc(site.color || '#6750a4')}">
 ${FONT}
 <link rel="stylesheet" href="${A}/css/base.css${opts.assetV ? `?v=${opts.assetV}` : ''}">
 <link rel="stylesheet" href="${A}/css/material.css${opts.assetV ? `?v=${opts.assetV}` : ''}">
+${/^#[0-9a-f]{6}$/i.test(site.color || '') ? `<style>:root{--primary:${site.color}}</style>` : ''}
 </head>
 <body class="theme-material school-page" data-site="${esc(site.key)}" data-api="${esc(opts.apiBase ?? '')}" data-track="1" data-static="1">
 <div class="scroll-bar" aria-hidden="true"></div>
@@ -538,8 +539,9 @@ ${FONT}
     <a class="brand" href="${root}"><span class="brand-mark">${esc(site.heroSymbol)}</span><span>${esc(site.name)}</span></a>
     <button class="nav-toggle" type="button" aria-label="메뉴 열기" aria-expanded="false"><span></span><span></span><span></span></button>
     <nav class="nav-links" aria-label="주요 메뉴">
+      ${active === 'winter' ? `<a class="active" href="${root}#winter">겨울방학 특강</a>` : ''}
       <a href="${root}#courses">수업과정</a>
-      <a class="active" href="${root}schools/">학교별 과외</a>
+      <a${active === 'schools' ? ' class="active"' : ''} href="${root}schools/">학교별 과외</a>
       <a href="${root}#tutors">선생님</a>
       <a href="${root}#faq">FAQ</a>
       <a class="btn btn-primary" href="${root}#apply">무료 학습 30분</a>
@@ -558,7 +560,7 @@ ${FONT}
   </section>
   <div class="wrap school-main">
 ${body}
-    <p class="school-source">학교 목록은 교육부 나이스(NEIS) 교육정보 개방 포털의 공개 자료를 기준으로 합니다. ${esc(site.name)}은(는) 각 학교와 제휴 관계가 없습니다. 수업 지역: ${esc(site.area || '')}</p>
+    <p class="school-source">${source ?? `학교 목록은 교육부 나이스(NEIS) 교육정보 개방 포털의 공개 자료를 기준으로 합니다. ${esc(site.name)}은(는) 각 학교와 제휴 관계가 없습니다.`} 수업 지역: ${esc(site.area || '')}</p>
   </div>
 </main>
 <footer class="footer"><div class="wrap"><strong>${esc(site.name)}</strong><span>${esc(site.tagline)}</span><small>© ${new Date().getFullYear()} ${esc(site.name)}. All rights reserved.</small></div></footer>
@@ -688,6 +690,39 @@ export function renderSchoolDetail(site, region, city, row, opts = {}) {
     ${nearby.length ? `<section class="detail-section">
       <h2 class="section-title left">${esc(city.label)} 다른 ${esc(s.kind)}</h2>
       <div class="school-grid">${nearby.map((x) => `<a class="card school-card" href="../${esc(encodeURIComponent(x[4]))}/"><b class="school-name">${esc(x[0])}</b><span>${esc(city.label)} ${esc(shortSchool(x[0]))} 과외</span></a>`).join('')}</div>
+    </section>` : ''}`
+  }, opts);
+}
+
+// 겨울방학 특강 과정별 페이지 (/winter/<slug>/): 대상 · 목표 · 8주 커리큘럼 · 다른 특강
+export function renderWinterProgram(site, p, opts = {}) {
+  const c = WINTER_CURRICULUM[p.slug];
+  const root = '../../';
+  const all = (site.winterPrograms ?? DEFAULT_SITE.data.winterPrograms).filter((x) => x.slug !== p.slug && WINTER_CURRICULUM[x.slug]);
+  const apply = `${root}#apply`;
+  return schoolPage(site, {
+    title: `${p.title} 겨울방학 특강 · 1:1 윈터스쿨 커리큘럼 | ${site.name}`,
+    desc: `${p.target} ${p.title} 겨울방학 특강. ${c.summary}`.slice(0, 160),
+    path: `winter/${p.slug}/`, root, active: 'winter',
+    crumbs: [['홈', root], ['겨울방학 특강', `${root}#winter`], [p.title]],
+    h1: `${p.icon} ${p.title}`,
+    lead: `<span class="winter-target">${esc(p.target)}</span> ${esc(c.summary)}`,
+    heroCta: `<a class="btn btn-primary btn-lg" href="${apply}">${esc(p.title)} 무료 학습 30분 신청</a>`,
+    source: `커리큘럼은 겨울방학 8주 기준 예시이며, 무료 학습 30분 진단 결과와 학생의 방학 일정에 맞춰 1:1로 조정합니다. 회당 90분, 방문 또는 화상 수업.`,
+    body: `    <section class="detail-section">
+      <div class="grid grid-2">
+        <div class="card note-card"><h3>이런 학생에게 맞아요</h3><ul class="winter-list">${c.who.map((x) => `<li>${esc(x)}</li>`).join('')}</ul></div>
+        <div class="card note-card"><h3>방학 동안 이것을 끝냅니다</h3><ul class="winter-list goal">${c.goals.map((x) => `<li>${esc(x)}</li>`).join('')}</ul></div>
+      </div>
+    </section>
+    <section class="detail-section">
+      <h2 class="section-title left">주차별 커리큘럼 (8주)</h2>
+      <ol class="curriculum">${c.weeks.map(([w, t, d]) => `<li class="card"><span class="cw-week">${esc(w)}</span><div><h3>${esc(t)}</h3><p>${esc(d)}</p></div></li>`).join('')}</ol>
+      <div class="trial-cta detail-cta"><a class="btn btn-primary btn-lg" href="${apply}">무료 학습 30분으로 시작하기</a></div>
+    </section>
+    ${all.length ? `<section class="detail-section">
+      <h2 class="section-title left">다른 겨울방학 특강</h2>
+      <div class="school-grid">${all.map((x) => `<a class="card school-card" href="../${esc(x.slug)}/"><b class="school-name">${esc(x.icon)} ${esc(x.title)}</b><span>${esc(x.target)}</span></a>`).join('')}</div>
     </section>` : ''}`
   }, opts);
 }

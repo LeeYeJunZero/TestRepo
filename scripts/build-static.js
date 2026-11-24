@@ -6,8 +6,8 @@ import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
 import { fileURLToPath } from 'node:url';
-import { DEFAULT_SITE, SITE_KEY, SUBJECTS } from '../src/defaults.js';
-import { renderSite, renderMaintenance, renderRedirect, renderRobots, renderSitemap, renderSchoolsIndex, renderSchoolRegion, renderSchoolCity, renderSchoolDetail, renderLeadDialog, schoolCitiesOf, schoolKindKey, SCHOOL_KINDS, SCHOOL_REGIONS } from '../src/render.js';
+import { DEFAULT_SITE, SITE_KEY, SUBJECTS, WINTER_CURRICULUM } from '../src/defaults.js';
+import { renderWinterProgram, renderSite, renderMaintenance, renderRedirect, renderRobots, renderSitemap, renderSchoolsIndex, renderSchoolRegion, renderSchoolCity, renderSchoolDetail, renderLeadDialog, schoolCitiesOf, schoolKindKey, SCHOOL_KINDS, SCHOOL_REGIONS } from '../src/render.js';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 // STATIC_OUT: 출력 폴더 변경, STATIC_SCHOOL_REGIONS: 학교 상세 페이지를 만들 시·도 slug 제한 (쉼표 구분, 개발용)
@@ -82,6 +82,12 @@ for (const r of schoolRegions) {
   }
 }
 fs.writeFileSync(path.join(out, 'schools', 'search.json'), JSON.stringify(searchIndex));
+// 겨울방학 특강 과정별 페이지
+for (const p of (site.winterPrograms ?? DEFAULT_SITE.data.winterPrograms).filter((x) => WINTER_CURRICULUM[x.slug])) {
+  fs.mkdirSync(path.join(out, 'winter', p.slug), { recursive: true });
+  fs.writeFileSync(path.join(out, 'winter', p.slug, 'index.html'), renderWinterProgram(site, p, opts));
+  schoolPaths.push(`winter/${p.slug}/`);
+}
 fs.writeFileSync(path.join(out, 'index.html'), site.status === 'maintenance' ? renderMaintenance(site, opts) : renderSite(site, opts));
 for (const s of SUBJECTS) {
   fs.mkdirSync(path.join(out, s), { recursive: true });
