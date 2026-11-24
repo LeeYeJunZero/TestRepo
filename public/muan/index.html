@@ -144,7 +144,7 @@ footer{padding:32px 0 100px;color:var(--mute);font-size:14px;text-align:center}
     <ul class="facts">
       <li>검증된 선생님 500명 이상</li>
       <li>통학 시간 없이 집에서 1:1 수업</li>
-      <li>상담·매칭 무료, 안 맞으면 선생님 교체</li>
+      <li>30분 무료수업 · 상담·매칭 무료</li>
     </ul>
     <a class="phone-big" href="tel:01022244713"><small>바로 전화 상담</small><strong>010-2224-4713</strong></a>
   </div>
@@ -240,6 +240,14 @@ footer{padding:32px 0 100px;color:var(--mute);font-size:14px;text-align:center}
 
   const form = document.getElementById('form');
   const msg = form.querySelector('.msg');
+  // 과목·전화·상담 버튼 클릭 → 텔레그램 클릭 알림 (Worker 가 1분마다 묶어서 보냄)
+  document.addEventListener('click', (e) => {
+    const el = e.target.closest('[data-subject], a.btn, a.phone-big');
+    if (!el) return;
+    const label = el.dataset.subject ? el.dataset.subject + '과외' : el.getAttribute('href').startsWith('tel:') ? '전화' : '상담 신청 버튼';
+    fetch(API + '/api/event', { method: 'POST', mode: 'cors', keepalive: true, headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ kind: 'click', label: '무안 · ' + label, href: el.getAttribute('href') || '' }) }).catch(() => {});
+  });
   // 과목 타일 클릭 → 상담폼으로 이동하며 과목 자동 선택, 이름 칸에 바로 입력
   document.querySelector('[data-tiles]').addEventListener('click', (e) => {
     const t = e.target.closest('[data-subject]');

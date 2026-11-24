@@ -106,9 +106,7 @@ function recordVisit(req, pathStr, referrer, vid) {
   const ua = clip(req.get('user-agent'), 400);
   try {
     insertVisit.run(SITE_KEY, clip(pathStr, 300), req.ip || '', ua, clip(referrer, 400), vid,
-      /Mobi|Android|iPhone|iPad/i.test(ua) ? 1 : 0, BOT_RE.test(ua) ? 1 : 0);
-    if (!BOT_RE.test(ua)) bot?.onVisit({ at: kstNow(), path: clip(pathStr, 300), mobile: /Mobi|Android|iPhone|iPad/i.test(ua), referrer: clip(referrer, 200) });
-  } catch (e) { console.error('visit log failed', e); }
+      /Mobi|Android|iPhone|iPad/i.test(ua) ? 1 : 0, BOT_RE.test(ua) ? 1 : 0);  } catch (e) { console.error('visit log failed', e); }
 }
 
 // ───────────── 공개: 사이트 ─────────────

@@ -14,7 +14,8 @@ const SUBJECT_NAME = { math: '수학', english: '영어', coding: '코딩' };
 const SUBJ_ICON = { math: '🟢', english: '🟣', coding: '🔵' };
 const INQ_STATUS = ['new', 'contacted', 'enrolled', 'closed'];
 const INQ_LABEL = { new: '신규', contacted: '연락완료', enrolled: '등록', closed: '종료' };
-const DEFAULT_NOTIFY = { inquiry: true, click: true, visit: false };
+// 알림은 상담 신청·클릭만 (접속 알림은 너무 많아 제거)
+const DEFAULT_NOTIFY = { inquiry: true, click: true };
 const BOT_RE = /bot|crawl|spider|slurp|facebookexternalhit|preview|headless|curl|wget|python-requests|httpclient/i;
 const MOBILE_RE = /Mobi|Android|iPhone|iPad/i;
 
@@ -254,7 +255,7 @@ const help = () => '<b>퍼스트티쳐 관리 봇</b>\n' + COMMANDS.map(([c, d])
   '\n\n💬 실시간 상담 알림에 <b>답장</b>하면 방문자 화면에 바로 표시됩니다.';
 const notifyKeyboard = (n) => {
   const b = (k, label) => ({ text: `${n[k] ? '🔔' : '🔕'} ${label}`, callback_data: `notify:${k}` });
-  return { inline_keyboard: [[b('inquiry', '상담'), b('click', '클릭'), b('visit', '접속')]] };
+  return { inline_keyboard: [[b('inquiry', '상담'), b('click', '클릭')]] };
 };
 
 async function handleMessage(env, msg) {
@@ -464,11 +465,6 @@ export default {
       const mobile = MOBILE_RE.test(ua);
       await run(db, 'INSERT INTO visits (path, ip, ua, referrer, visitor, mobile, bot) VALUES (?, ?, ?, ?, ?, ?, ?)',
         path, ip, ua, clip(b.referrer, 400), vid, mobile ? 1 : 0, isBot ? 1 : 0);
-      if (!isBot) ctx.waitUntil((async () => {
-        if (!(await notifyCfg(db)).visit) return;
-        const now = new Date(Date.now() + 9 * 3600e3).toISOString().slice(11, 16);
-        await broadcast(env, `👀 <b>접속</b> ${now} · ${mobile ? '모바일' : 'PC'}\n${h(path)}${b.referrer ? `\n↪ ${h(clip(b.referrer, 200))}` : ''}`);
-      })());
       return reply(null, 204);
     }
 

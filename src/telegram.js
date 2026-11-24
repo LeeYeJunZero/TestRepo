@@ -15,7 +15,8 @@ const md = (ts) => String(ts || '').slice(5, 16);
 const subj = (s) => (s ? SUBJECT_NAME[s] || s : '공통');
 const SUBJ_ICON = { math: '🟢', english: '🟣', coding: '🔵' };
 
-const DEFAULT_NOTIFY = { inquiry: true, click: true, visit: false };
+// 알림은 상담 신청·클릭만 (접속 알림은 너무 많아 제거)
+const DEFAULT_NOTIFY = { inquiry: true, click: true };
 const CLICK_BATCH_MS = Number(process.env.TELEGRAM_CLICK_BATCH_MS) || 30_000;
 
 const COMMANDS = [
@@ -92,10 +93,6 @@ export function createTelegramBot({ token, password, apiBase = 'https://api.tele
     broadcast(`🖱️ <b>클릭 ${list.length}건</b>${list.length > 15 ? ' (최근 15건)' : ''}\n${lines.join('\n')}`);
   }
 
-  function onVisit(v) {
-    if (!notify().visit || !admins().length) return;
-    broadcast(`👀 <b>접속</b> ${hm(v.at)} · ${v.mobile ? '모바일' : 'PC'}\n${h(v.path)}${v.referrer ? `\n↪ ${h(v.referrer)}` : ''}`);
-  }
 
   // ───────── 명령 ─────────
   const statsText = (days) => {
@@ -128,7 +125,7 @@ export function createTelegramBot({ token, password, apiBase = 'https://api.tele
   const notifyKeyboard = () => {
     const n = notify();
     const b = (k, label) => ({ text: `${n[k] ? '🔔' : '🔕'} ${label}`, callback_data: `notify:${k}` });
-    return { inline_keyboard: [[b('inquiry', '상담'), b('click', '클릭'), b('visit', '접속')]] };
+    return { inline_keyboard: [[b('inquiry', '상담'), b('click', '클릭')]] };
   };
   const help = () => '<b>퍼스트티쳐 관리 봇</b>\n' + COMMANDS.map(([c, d]) => `/${c} — ${h(d)}`).join('\n');
 
@@ -275,6 +272,6 @@ export function createTelegramBot({ token, password, apiBase = 'https://api.tele
       loop();
     },
     stop() { running = false; abort?.abort(); flushClicks(); },
-    onInquiry, onClick, onVisit, flushClicks
+    onInquiry, onClick, flushClicks
   };
 }
