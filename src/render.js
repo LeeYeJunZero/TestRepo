@@ -61,7 +61,7 @@ function head(site, title, A, opts = {}) {
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>${esc(title)}</title>
 <meta name="description" content="${esc(site.heroSub)}">
-<meta name="keywords" content="${esc([site.name, '과외', '1:1 과외', '1:1 맞춤 수업', '무료 학습', '중등 내신', '고등 내신', '모의고사', subjects, ...(site.subjects || []).map((s) => s.name + ' 과외')].join(', '))}">
+<meta name="keywords" content="${esc([site.name, '과외', '1:1 과외', '1:1 맞춤 수업', '무료 학습', '중등 내신', '고등 내신', '모의고사', ...(site.winterKeywords ?? DEFAULT_SITE.data.winterKeywords ?? []), subjects, ...(site.subjects || []).map((s) => s.name + ' 과외')].join(', '))}">
 <meta name="robots" content="index,follow,max-image-preview:large">
 ${v.google ? `<meta name="google-site-verification" content="${esc(v.google)}">` : ''}
 ${v.naver ? `<meta name="naver-site-verification" content="${esc(v.naver)}">` : ''}
@@ -89,7 +89,20 @@ ${color ? `<style>:root{--primary:${color}}</style>` : ''}
 const GRADES = ['초등학생', '중학생', '고등학생', '대학생·성인', '기타'];
 const LEAD_GRADES = ['초1', '초2', '초3', '초4', '초5', '초6', '중1', '중2', '중3', '고1', '고2', '고3·재수생', '성인'];
 const LEAD_MODES = ['방문수업', '화상수업'];
-const MARQUEE = ['1:1 맞춤 수업', '무료 학습 30분', '중등 내신', '고등 내신', '모의고사', '학교별 기출 분석', '오답 관리', '월간 리포트'];
+const SNOWMAN = `<svg class="snowman" viewBox="0 0 120 160" role="presentation" focusable="false">
+  <ellipse cx="60" cy="152" rx="46" ry="6" fill="#dbe7f5"/>
+  <circle cx="60" cy="118" r="34" fill="#fff" stroke="#c9d8ec" stroke-width="2"/>
+  <circle cx="60" cy="66" r="25" fill="#fff" stroke="#c9d8ec" stroke-width="2"/>
+  <path d="M38 50 h44 v-6 h-8 v-20 h-28 v20 h-8z" fill="#1f2a44"/><rect x="46" y="38" width="28" height="5" fill="#d64545"/>
+  <circle cx="51" cy="62" r="2.6" fill="#1f2a44"/><circle cx="69" cy="62" r="2.6" fill="#1f2a44"/>
+  <path d="M60 68 l14 4 l-14 3z" fill="#f08a24"/>
+  <path d="M50 78 q10 6 20 0" fill="none" stroke="#1f2a44" stroke-width="2" stroke-linecap="round"/>
+  <path d="M36 88 q24 10 48 0 l-2 8 q-22 8 -44 0z" fill="#d64545"/><rect x="66" y="92" width="9" height="22" rx="3" fill="#d64545"/>
+  <circle cx="60" cy="108" r="2.6" fill="#1f2a44"/><circle cx="60" cy="122" r="2.6" fill="#1f2a44"/>
+  <path d="M28 108 l-20 -14 M16 100 l-6 2 M16 100 l-2 -6" stroke="#7a4b2a" stroke-width="3" stroke-linecap="round" fill="none"/>
+  <path d="M92 108 l20 -14 M104 100 l6 2 M104 100 l2 -6" stroke="#7a4b2a" stroke-width="3" stroke-linecap="round" fill="none"/>
+</svg>`;
+const MARQUEE = ['❄ 겨울방학 특강', '윈터스쿨', '예비 고1 선행', '1:1 맞춤 수업', '무료 학습 30분', '중등 내신', '고등 내신', '모의고사', '학교별 기출 분석', '오답 관리', '월간 리포트'];
 
 // 오른쪽 아래 상담 버튼 묶음: (실시간 상담 — site.js 가 Worker 확인 후 맨 위에 넣음) / 카톡 상담 · 전화
 const ICON_KAKAO = '<svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M12 3.5c-5 0-9 3.2-9 7.1 0 2.5 1.6 4.7 4.1 5.9l-.9 3.4c-.1.3.3.6.6.4l4-2.6 1.2.1c5 0 9-3.2 9-7.2S17 3.5 12 3.5z"/></svg>';
@@ -177,6 +190,8 @@ export function renderSite(site, opts = {}) {
   const steps = site.steps ?? DEFAULT_SITE.data.steps;
   const exams = site.exams ?? DEFAULT_SITE.data.exams;
   const leadTiles = site.leadSubjects ?? DEFAULT_SITE.data.leadSubjects;
+  const winter = site.winterPrograms ?? DEFAULT_SITE.data.winterPrograms;
+  const winterKw = site.winterKeywords ?? DEFAULT_SITE.data.winterKeywords;
   const subjName = (k) => subjects.find((s) => s.key === k)?.name || SUBJECT_NAME[k] || '';
 
   return `${head(site, `${site.name} | ${site.tagline}`, A, opts)}
@@ -190,6 +205,7 @@ ${site.notice ? `<div class="notice" role="status"><div class="wrap">${esc(site.
       <span></span><span></span><span></span>
     </button>
     <nav class="nav-links" aria-label="주요 메뉴">
+      ${winter.length ? '<a href="#winter">겨울방학 특강</a>' : ''}
       <a href="#courses">수업과정</a>
       ${opts.schoolRegions?.length ? '<a href="schools/">학교별 과외</a>' : ''}
       <a href="#tutors">선생님</a>
@@ -207,20 +223,34 @@ ${site.notice ? `<div class="notice" role="status"><div class="wrap">${esc(site.
         <span class="eyebrow">${esc(site.tagline)}</span>
         <h1>${br(site.heroTitle)}</h1>
         <p class="lead">${esc(site.heroSub)}</p>
-        <p class="hero-rotate">1:1로 함께 잡습니다 · <span data-rotate="중등 내신|고등 내신|모의고사 등급|서술형 대비|반복되는 실수">중등 내신</span></p>
+        <p class="hero-rotate">1:1로 함께 잡습니다 · <span data-rotate="겨울방학 특강|예비 고1 선행|개념 총정리|예비 고3 수능|지난 학기 약점">겨울방학 특강</span></p>
         <ul class="hero-badges">
-          <li>1:1 맞춤 수업</li><li>무료 학습 30분</li><li>중등·고등 내신</li><li>모의고사 대비</li>
+          <li>❄ 겨울방학 특강</li><li>무료 학습 30분</li><li>1:1 윈터스쿨</li><li>예비 중1 – 예비 고3</li>
         </ul>
         <div class="hero-actions">
           <a class="btn btn-primary btn-lg" href="#apply" data-lead-open>무료 학습 30분 신청</a>
-          <a class="btn btn-ghost btn-lg" href="#subjects">과목 둘러보기</a>
+          <a class="btn btn-ghost btn-lg" href="${winter.length ? '#winter' : '#subjects'}">${winter.length ? '겨울방학 특강 보기' : '과목 둘러보기'}</a>
         </div>
       </div>
       <div class="hero-stack" aria-hidden="true">
+        ${SNOWMAN}
         ${subjects.map((s, i) => `<div class="stack-card sc-${esc(s.key)}" style="--i:${i}"><b>${esc(s.icon)}</b><span>${esc(s.name)}</span></div>`).join('')}
       </div>
     </div>
   </section>
+
+  ${winter.length ? `<section id="winter" class="section winter">
+    <div class="wrap">
+      <p class="winter-kicker">❄ WINTER SCHOOL</p>
+      <h2 class="section-title">겨울방학 특강 · 1:1 윈터스쿨</h2>
+      <p class="section-sub">방학은 다음 학기 성적이 갈리는 시간입니다. 학년과 목표에 맞춰 선행·복습·수능 대비를 1:1로 설계합니다.</p>
+      <div class="grid winter-grid">
+        ${winter.map((w) => `<a class="card winter-card" href="#apply" data-lead-open><span class="winter-icon" aria-hidden="true">${esc(w.icon)}</span><span class="winter-target">${esc(w.target)}</span><h3>${esc(w.title)}</h3><p>${esc(w.desc)}</p></a>`).join('')}
+      </div>
+      ${winterKw?.length ? `<ul class="winter-keys" aria-label="겨울방학 특강 키워드">${winterKw.map((k) => `<li>#${esc(k)}</li>`).join('')}</ul>` : ''}
+      <div class="band-cta"><a class="btn btn-primary btn-lg" href="#apply" data-lead-open>겨울방학 특강 무료 학습 30분 신청</a></div>
+    </div>
+  </section>` : ''}
 
   <div class="marquee" aria-hidden="true"><div class="marquee-track">${[0, 1].map(() => MARQUEE.map((t) => `<span>${esc(t)}</span>`).join('')).join('')}</div></div>
 

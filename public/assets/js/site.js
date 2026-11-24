@@ -755,38 +755,39 @@
       });
     }
 
-    // 첫 화면 배경: 떠다니는 수식·기호 (화면에 보일 때만 동작)
+    // 첫 화면 배경: 내리는 눈 (겨울 시즌, 화면에 보일 때만 동작)
     const canvas = document.querySelector('.hero-canvas');
     const ctx = canvas?.getContext('2d');
     if (ctx) {
-      const glyphs = ['∑', 'π', '√', 'x²', 'Aa', '</>', '÷', '∞', '{ }', '%', 'A+', 'y=ax'];
       const small = innerWidth < 720;
-      let w = 0, h = 0, on = true, raf = 0, mx = 0, my = 0;
-      const items = Array.from({ length: Math.max(6, Math.min(small ? 16 : 38, Math.round((canvas.clientWidth * canvas.clientHeight) / 22000))) }, (_, i) => ({
-        g: glyphs[i % glyphs.length], x: Math.random(), y: Math.random(), z: 0.3 + Math.random() * 0.7,
-        s: 0.00035 + Math.random() * 0.0007, p: Math.random() * 6.28
+      let w = 0, h = 0, on = true, raf = 0, mx = 0;
+      const flakes = Array.from({ length: small ? 45 : 110 }, () => ({
+        x: Math.random(), y: Math.random(), z: 0.35 + Math.random() * 0.65, p: Math.random() * 6.28, star: Math.random() < 0.12
       }));
-      const color = getComputedStyle(body).getPropertyValue('--primary').trim() || '#6750a4';
       const size = () => {
         const dpr = Math.min(devicePixelRatio || 1, 2), r = canvas.getBoundingClientRect();
         w = r.width; h = r.height; canvas.width = w * dpr; canvas.height = h * dpr; ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
       };
       const draw = (t) => {
         ctx.clearRect(0, 0, w, h);
-        ctx.fillStyle = color; ctx.textAlign = 'center';
-        for (const it of items) {
-          it.y -= it.s * it.z; if (it.y < -0.08) { it.y = 1.08; it.x = Math.random(); }
-          const x = it.x * w + Math.sin(t / 1600 + it.p) * 18 * it.z - mx * 34 * it.z;
-          const y = it.y * h - my * 34 * it.z;
-          ctx.globalAlpha = 0.04 + it.z * 0.11;
-          ctx.font = `800 ${Math.round(14 + it.z * 26)}px system-ui, sans-serif`;
-          ctx.fillText(it.g, x, y);
+        ctx.textAlign = 'center';
+        for (const f of flakes) {
+          f.y += 0.0007 * f.z; if (f.y > 1.04) { f.y = -0.04; f.x = Math.random(); }
+          const x = f.x * w + Math.sin(t / 1400 + f.p) * 22 * f.z - mx * 30 * f.z;
+          const y = f.y * h;
+          ctx.globalAlpha = 0.35 + f.z * 0.55;
+          if (f.star) { // 큰 눈송이 모양
+            ctx.fillStyle = '#9cc3ec'; ctx.font = `${Math.round(12 + f.z * 16)}px system-ui, sans-serif`; ctx.fillText('❄', x, y);
+          } else {
+            ctx.fillStyle = '#fff'; ctx.beginPath(); ctx.arc(x, y, 1.2 + f.z * 2.6, 0, 6.29); ctx.fill();
+            ctx.strokeStyle = 'rgba(120,160,210,.35)'; ctx.lineWidth = 0.6; ctx.stroke(); // 밝은 배경에서도 보이게 옅은 테두리
+          }
         }
         if (on) raf = requestAnimationFrame(draw);
       };
       size();
       window.addEventListener('resize', size, { passive: true });
-      window.addEventListener('pointermove', (e) => { mx = e.clientX / innerWidth - 0.5; my = e.clientY / innerHeight - 0.5; }, { passive: true });
+      window.addEventListener('pointermove', (e) => { mx = e.clientX / innerWidth - 0.5; }, { passive: true });
       new IntersectionObserver(([e]) => {
         const vis = e.isIntersecting;
         if (vis && !on) { on = true; raf = requestAnimationFrame(draw); } else if (!vis) { on = false; cancelAnimationFrame(raf); }
