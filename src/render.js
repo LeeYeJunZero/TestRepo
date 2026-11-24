@@ -192,6 +192,7 @@ export function renderSite(site, opts = {}) {
   const leadTiles = site.leadSubjects ?? DEFAULT_SITE.data.leadSubjects;
   const winter = site.winterPrograms ?? DEFAULT_SITE.data.winterPrograms;
   const winterKw = site.winterKeywords ?? DEFAULT_SITE.data.winterKeywords;
+  const winterPlan = site.winterPlan ?? DEFAULT_SITE.data.winterPlan;
   const subjName = (k) => subjects.find((s) => s.key === k)?.name || SUBJECT_NAME[k] || '';
 
   return `${head(site, `${site.name} | ${site.tagline}`, A, opts)}
@@ -264,6 +265,18 @@ ${site.notice ? `<div class="notice" role="status"><div class="wrap">${esc(site.
           <p class="worry-a">${esc(x.solution)}</p>
         </article>`).join('')}
       </div>
+    </div>
+  </section>` : ''}
+
+  ${winterPlan.length ? `<section id="winter-plan" class="section winter-plan">
+    <div class="wrap">
+      <p class="winter-kicker">❄ 겨울방학 공부법</p>
+      <h2 class="section-title">다가오는 겨울방학,<br>우리 아이 어떻게 공부시킬까요?</h2>
+      <p class="section-sub">방학 두 달, 순서만 지켜도 결과가 달라집니다. 퍼스트티쳐는 이 순서대로 1:1 수업을 짭니다.</p>
+      <ol class="plan">
+        ${winterPlan.map((x, i) => `<li class="card plan-step"><span class="plan-no">${i + 1}</span><span class="plan-when">${esc(x.when)}</span><h3>${esc(x.title)}</h3><p>${esc(x.desc)}</p></li>`).join('')}
+      </ol>
+      <div class="band-cta"><a class="btn btn-primary btn-lg" href="#apply" data-lead-open>우리 아이 겨울방학 계획 상담받기</a></div>
     </div>
   </section>` : ''}
 
