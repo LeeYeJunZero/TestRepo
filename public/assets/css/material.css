@@ -530,7 +530,7 @@ main { overflow-x: clip; }
 .theme-material .hero { position: relative; background: linear-gradient(180deg, #e6f0fb 0%, #f4f8fd 60%, var(--surface) 100%); }
 .theme-material .hero::after { content: ""; position: absolute; left: 0; right: 0; bottom: -1px; height: 46px; pointer-events: none;
   background: radial-gradient(60px 26px at 8% 100%, #fff 98%, transparent) , radial-gradient(90px 30px at 30% 100%, #fff 98%, transparent), radial-gradient(70px 24px at 55% 100%, #fff 98%, transparent), radial-gradient(110px 34px at 82% 100%, #fff 98%, transparent); }
-.notice { background: linear-gradient(90deg, #17447a, var(--primary), #17447a); }
+.theme-material .notice { background: linear-gradient(90deg, #17447a, var(--primary), #17447a); color: #fff; font-size: 15px; font-weight: 700; letter-spacing: .01em; }
 .snowman { position: absolute; width: 132px; right: -8px; bottom: -14px; z-index: 3; filter: drop-shadow(0 8px 14px rgba(23, 68, 122, .18)); }
 @media (max-width: 820px) { .snowman { width: 92px; right: -18px; bottom: -6px; } }
 @media (prefers-reduced-motion: no-preference) { .snowman { animation: snow-wobble 4.5s ease-in-out infinite; transform-origin: 50% 100%; } }
