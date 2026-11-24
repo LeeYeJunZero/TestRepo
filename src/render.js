@@ -708,7 +708,7 @@ export function renderWinterProgram(site, p, opts = {}) {
     h1: `${p.icon} ${p.title}`,
     lead: `<span class="winter-target">${esc(p.target)}</span> ${esc(c.summary)}`,
     heroCta: `<a class="btn btn-primary btn-lg" href="${apply}">${esc(p.title)} 무료 학습 30분 신청</a>`,
-    source: `커리큘럼은 겨울방학 8주 기준 예시이며, 무료 학습 30분 진단 결과와 학생의 방학 일정에 맞춰 1:1로 조정합니다. 회당 90분, 방문 또는 화상 수업.`,
+    source: `주차는 주 2회, 회당 90분 기준입니다. 무료 학습 30분 진단 결과와 학생의 방학 일정에 맞춰 1:1로 조정합니다. 방문 또는 화상 수업.`,
     body: `    <section class="detail-section">
       <div class="grid grid-2">
         <div class="card note-card"><h3>이런 학생에게 맞아요</h3><ul class="winter-list">${c.who.map((x) => `<li>${esc(x)}</li>`).join('')}</ul></div>
@@ -716,8 +716,9 @@ export function renderWinterProgram(site, p, opts = {}) {
       </div>
     </section>
     <section class="detail-section">
-      <h2 class="section-title left">주차별 커리큘럼 (8주)</h2>
-      <ol class="curriculum">${c.weeks.map(([w, t, d]) => `<li class="card"><span class="cw-week">${esc(w)}</span><div><h3>${esc(t)}</h3><p>${esc(d)}</p></div></li>`).join('')}</ol>
+      <h2 class="section-title left">주차별 커리큘럼</h2>
+      ${(c.tracks || [{ weeks: c.weeks }]).map((t) => `${t.name ? `<h3 class="cw-track">${esc(t.name)} · ${t.weeks.length}주</h3>` : ''}
+      <ol class="curriculum">${t.weeks.map(([w, title, d]) => `<li class="card"><span class="cw-week">${esc(w)}</span><div><h3>${esc(title)}</h3><p>${esc(d)}</p></div></li>`).join('')}</ol>`).join('\n      ')}
       <div class="trial-cta detail-cta"><a class="btn btn-primary btn-lg" href="${apply}">무료 학습 30분으로 시작하기</a></div>
     </section>
     ${all.length ? `<section class="detail-section">
