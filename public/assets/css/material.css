@@ -580,3 +580,14 @@ main { overflow-x: clip; }
 @media (max-width: 560px) { .theme-material .curriculum .card { grid-template-columns: 52px 1fr; gap: 12px; padding: 16px; } }
 .cw-track { margin: 26px 0 12px; font-size: 19px; color: var(--on-primary-container); }
 .cw-track:first-of-type { margin-top: 0; }
+/* 과정 페이지 학년 고르기 (초등·중등·고등) */
+.lv-label { margin: 0 0 10px; font-weight: 700; }
+.lv { position: relative; }
+.lv > input { position: absolute; left: 0; top: 0; width: 1px; height: 1px; margin: 0; opacity: 0; pointer-events: none; }
+.lv > label { display: inline-block; margin: 0 8px 14px 0; padding: 10px 26px; border-radius: 100px; font-size: 17px; font-weight: 800; cursor: pointer; background: #fff; border: 2px solid #c9dbf1; color: var(--on-primary-container); transition: background .15s, color .15s; }
+.lv > input:checked + label { background: var(--primary); border-color: var(--primary); color: #fff; }
+.lv > input:focus-visible + label { outline: 3px solid color-mix(in srgb, var(--primary) 45%, transparent); outline-offset: 2px; }
+.lv-panel { display: none; }
+.lv > input:nth-of-type(1):checked ~ .lv-panel:nth-of-type(1), .lv > input:nth-of-type(2):checked ~ .lv-panel:nth-of-type(2),
+.lv > input:nth-of-type(3):checked ~ .lv-panel:nth-of-type(3), .lv > input:nth-of-type(4):checked ~ .lv-panel:nth-of-type(4) { display: block; }
+.lv-panel .cw-track { margin-top: 4px; }

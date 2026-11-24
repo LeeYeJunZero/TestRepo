@@ -226,7 +226,7 @@ ${site.notice ? `<div class="notice" role="status"><div class="wrap">${esc(site.
         <p class="lead">${esc(site.heroSub)}</p>
         <p class="hero-rotate">1:1로 함께 잡습니다 · <span data-rotate="겨울방학 특강|예비 고1 선행|개념 총정리|예비 고3 수능|지난 학기 약점">겨울방학 특강</span></p>
         <ul class="hero-badges">
-          <li>❄ 겨울방학 특강</li><li>무료 학습 30분</li><li>1:1 윈터스쿨</li><li>예비 중1 – 예비 고3</li>
+          <li>❄ 겨울방학 특강</li><li>무료 학습 30분</li><li>1:1 윈터스쿨</li><li>예비 초6 – 예비 고3</li>
         </ul>
         <div class="hero-actions">
           <a class="btn btn-primary btn-lg" href="#apply" data-lead-open>무료 학습 30분 신청</a>
@@ -717,8 +717,16 @@ export function renderWinterProgram(site, p, opts = {}) {
     </section>
     <section class="detail-section">
       <h2 class="section-title left">주차별 커리큘럼 (8주)</h2>
-      ${(c.tracks || [{ weeks: c.weeks }]).map((t) => `${t.name ? `<h3 class="cw-track">${esc(t.name)} · ${t.weeks.length}주</h3>` : ''}
-      <ol class="curriculum">${t.weeks.map(([w, title, d]) => `<li class="card"><span class="cw-week">${esc(w)}</span><div><h3>${esc(title)}</h3><p>${esc(d)}</p></div></li>`).join('')}</ol>`).join('\n      ')}
+      ${(() => {
+        const list = (t) => `<ol class="curriculum">${t.weeks.map(([w, title, d]) => `<li class="card"><span class="cw-week">${esc(w)}</span><div><h3>${esc(title)}</h3><p>${esc(d)}</p></div></li>`).join('')}</ol>`;
+        if (!c.tracks) return list(c);
+        // 학년 고르기: 라디오 + CSS (스크립트 없이 동작, 고른 학년 커리큘럼만 보임)
+        return `<div class="lv" data-no-track>
+        <p class="lv-label">학년을 고르세요</p>
+        ${c.tracks.map((t, i) => `<input type="radio" name="lv" id="lv-${i}"${i ? '' : ' checked'}><label for="lv-${i}">${esc(t.tab)}</label>`).join('')}
+        ${c.tracks.map((t) => `<div class="lv-panel"><h3 class="cw-track">${esc(t.name)} · ${t.weeks.length}주</h3>${list(t)}</div>`).join('')}
+      </div>`;
+      })()}
       <div class="trial-cta detail-cta"><a class="btn btn-primary btn-lg" href="${apply}">무료 학습 30분으로 시작하기</a></div>
     </section>
     ${all.length ? `<section class="detail-section">

@@ -88,6 +88,11 @@ for (const p of (site.winterPrograms ?? DEFAULT_SITE.data.winterPrograms).filter
   fs.writeFileSync(path.join(out, 'winter', p.slug, 'index.html'), renderWinterProgram(site, p, opts));
   schoolPaths.push(`winter/${p.slug}/`);
 }
+// 합쳐진 예전 주소 → 예비 초·중·고 선행
+for (const old of ['pre-middle1', 'pre-high1']) {
+  fs.mkdirSync(path.join(out, 'winter', old), { recursive: true });
+  fs.writeFileSync(path.join(out, 'winter', old, 'index.html'), renderRedirect('../advance/'));
+}
 fs.writeFileSync(path.join(out, 'index.html'), site.status === 'maintenance' ? renderMaintenance(site, opts) : renderSite(site, opts));
 for (const s of SUBJECTS) {
   fs.mkdirSync(path.join(out, s), { recursive: true });

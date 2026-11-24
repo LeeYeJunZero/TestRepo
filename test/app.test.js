@@ -409,6 +409,7 @@ test('R-18 겨울방학 특강: 카드는 과정별 페이지로, 모두 8주, �
     assert.equal((page.match(/class="cw-week"/g) || []).length, weeks.length);
     assert.equal(new Set(weeks.map((w) => w[1])).size, weeks.length, `${p.slug}: 같은 주제 반복`);
     for (const t of c.tracks || [{ weeks: c.weeks }]) assert.equal(t.weeks.length, 8, `${p.slug} ${t.name || ''}: 8주`);
+    if (c.tracks) assert.equal((page.match(/<input type="radio" name="lv"/g) || []).length, c.tracks.length, `${p.slug}: 학년 고르기 버튼`);
     assert.ok(page.includes('href="../../#apply"'));
   }
   // 커리큘럼이 없는 과정(어드민에서 추가)은 신청 팝업으로
