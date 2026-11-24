@@ -7,7 +7,6 @@ import path from 'node:path';
 import crypto from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { DEFAULT_SITE, SITE_KEY, SUBJECTS } from '../src/defaults.js';
-import { muanPages } from './muan-pages.js';
 import { renderSite, renderMaintenance, renderRedirect, renderRobots, renderSitemap, renderSchoolsIndex, renderSchoolRegion, renderSchoolCity, renderSchoolDetail, renderLeadDialog, schoolCitiesOf, schoolKindKey, SCHOOL_KINDS, SCHOOL_REGIONS } from '../src/render.js';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -40,12 +39,6 @@ function copyDir(src, dst) {
 }
 fs.rmSync(out, { recursive: true, force: true });
 copyDir(path.join(root, 'public/assets'), path.join(out, 'assets'));
-copyDir(path.join(root, 'public/muan'), path.join(out, 'muan')); // 무안 화상과외 랜딩 (독립 페이지)
-const muanSubjectPages = muanPages(fs.readFileSync(path.join(root, 'public/muan/index.html'), 'utf8'));
-for (const p of muanSubjectPages) {
-  fs.mkdirSync(path.join(out, 'muan', p.slug), { recursive: true });
-  fs.writeFileSync(path.join(out, 'muan', p.slug, 'index.html'), p.html);
-}
 
 const domain = fileCfg.customDomain || '';
 const canonical = domain ? `https://${domain}/` : undefined;
@@ -68,7 +61,7 @@ fs.writeFileSync(path.join(out, 'schools', 'index.html'), renderSchoolsIndex(sit
 // 학교 이름 검색용 목록 (입력 시에만 내려받음): c = [시·도 slug, 표시 지역, 폴더], s = [학교명, 학교급 번호, c 번호, 학교코드]
 const searchIndex = { c: [], s: [] };
 const kindIndex = Object.fromEntries(SCHOOL_KINDS.map(([k], i) => [k, i]));
-const schoolPaths = ['muan/', ...muanSubjectPages.map((p) => `muan/${p.slug}/`), 'schools/'];
+const schoolPaths = ['schools/'];
 for (const r of schoolRegions) {
   const dir = path.join(out, 'schools', r.slug);
   fs.mkdirSync(dir, { recursive: true });
