@@ -716,7 +716,7 @@ export function renderWinterProgram(site, p, opts = {}) {
       </div>
     </section>
     <section class="detail-section">
-      <h2 class="section-title left">주차별 커리큘럼</h2>
+      <h2 class="section-title left">주차별 커리큘럼 (8주)</h2>
       ${(c.tracks || [{ weeks: c.weeks }]).map((t) => `${t.name ? `<h3 class="cw-track">${esc(t.name)} · ${t.weeks.length}주</h3>` : ''}
       <ol class="curriculum">${t.weeks.map(([w, title, d]) => `<li class="card"><span class="cw-week">${esc(w)}</span><div><h3>${esc(title)}</h3><p>${esc(d)}</p></div></li>`).join('')}</ol>`).join('\n      ')}
       <div class="trial-cta detail-cta"><a class="btn btn-primary btn-lg" href="${apply}">무료 학습 30분으로 시작하기</a></div>
