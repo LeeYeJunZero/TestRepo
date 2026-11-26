@@ -1,5 +1,6 @@
 import { DEFAULT_SITE, SUBJECTS, SUBJECT_NAME, WINTER_CURRICULUM } from './defaults.js';
 import { describeSchool, studyGuide } from './school-guide.js';
+import { schoolCurriculum, schoolSearchUrl } from './school-curriculum.js';
 
 const ESC = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' };
 export const esc = (v) => String(v ?? '').replace(/[&<>"']/g, (c) => ESC[c]);
@@ -644,6 +645,19 @@ ${groups.map(([k, t, xs]) => `    <section class="school-section" data-section="
 // 학교 상세 페이지가 함께 쓰는 팝업 (사이트 전체에 파일 하나)
 export const renderLeadDialog = (site) => leadDialog(site.leadSubjects ?? DEFAULT_SITE.data.leadSubjects);
 
+function renderSchoolCurriculum(s) {
+  const curriculum = schoolCurriculum(s);
+  const source = curriculum?.url ?? schoolSearchUrl;
+  return `<section class="detail-section" aria-labelledby="school-curriculum">
+      <h2 class="section-title left" id="school-curriculum">교과목</h2>
+      ${curriculum ? curriculum.semesters.map(([grade, semester, year, subjects], i) => `<details class="card note-card"${i === 0 ? ' open' : ''}>
+        <summary><strong>${grade}학년 ${semester}학기</strong> · ${year}학년도${year > curriculum.referenceYear ? ' 개설 예정' : ''}</summary>
+        <ul class="major-list">${subjects.split('|').map((subject) => `<li>${esc(subject)}</li>`).join('')}</ul>
+      </details>`).join('') : `<p>이 페이지에 등록된 교과목 자료가 없습니다. 네이버 에듀에서 ${esc(s.name)}을 검색하거나 학교 홈페이지의 교육과정·시간표를 확인해 주세요.</p>`}
+      <p class="school-home"><a href="${esc(source)}" target="_blank" rel="noopener">${curriculum ? '출처: 네이버 에듀 개설 과목' : '네이버 에듀 학교검색'} ↗</a></p>
+    </section>`;
+}
+
 // 학교별 상세 페이지 (.../schools/{시·도}/{시·군·구}/{학교코드}/)
 export function renderSchoolDetail(site, region, city, row, opts = {}) {
   const root = '../../../../';
@@ -674,6 +688,7 @@ export function renderSchoolDetail(site, region, city, row, opts = {}) {
       <div class="card note-card"><h3>${esc(short)} 학습 방향</h3><p>${esc(s.note)}</p></div>
       ${s.home ? `<p class="school-home"><a href="${esc(s.home)}" target="_blank" rel="nofollow noopener">${esc(short)} 학교 홈페이지 ↗</a></p>` : ''}
     </section>
+    ${renderSchoolCurriculum(s)}
     <section class="detail-section">
       <h2 class="section-title left">${esc(short)} 과목별 공부법</h2>
       <div class="study-grid" data-school="${esc(s.name)}" data-short="${esc(short)}" data-dialog="${root}assets/lead-dialog.html${opts.assetV ? `?v=${opts.assetV}` : ''}">${guide.map((g) => `<article class="card study-card" data-subject-name="${esc(g.subject)}"><h3>${esc(short)} ${esc(g.subject)} 과외</h3><p>${esc(g.text)}</p><button type="button" class="study-open">${esc(g.subject)} 과외 문의 →</button></article>`).join('')}</div>
