@@ -1,5 +1,5 @@
 import {ACTIONS, RUNNING, PROVIDERS, normalizeComposer, validateComposer, dueTime, fingerprint, recoverJobs, publicBackup, importDrafts, redact} from './core.js';
-import {generate, review, listModels} from './api.js';
+import {generate, review, listModels, setApiDiagnostics} from './api.js';
 import {naverEditor, publishedUrl} from './naver.js';
 import {ensureImages, imagePayload, referencedImages, pruneImages} from './images.js';
 import {buildLayout} from './layout.js';
@@ -26,16 +26,18 @@ async function log(level, step, message, jobId = '') {
   const keys = {...(await chrome.storage.local.get('apiKeys')).apiKeys,...(await chrome.storage.session.get('apiKeys')).apiKeys};
   await mutate(s => {
     s.logs.push({at:Date.now(),level,step,message:redact(message,Object.values(keys)),jobId});
-    s.logs = s.logs.slice(-3000);
+    s.logs = s.logs.slice(-20000);
   });
 }
+setApiDiagnostics((step,data)=>log(step==='API_ERROR' ? 'error':'info',step,JSON.stringify(data)));
 async function getKey(provider) {
   const local = (await chrome.storage.local.get('apiKeys')).apiKeys || {};
   const session = (await chrome.storage.session.get('apiKeys')).apiKeys || {};
   return session[provider] || local[provider] || '';
 }
 async function updateJob(id, patch) {
-  return mutate(s => {const j = s.jobs.find(j => j.id === id); if (j) Object.assign(j,patch,{updatedAt:Date.now()});});
+  await mutate(s => {const j = s.jobs.find(j => j.id === id); if (j) Object.assign(j,patch,{updatedAt:Date.now()});});
+  if(patch.status)await log('info','JOB_STATE',JSON.stringify({status:patch.status,attempts:patch.attempts,tabId:patch.tabId,effectStarted:patch.effectStarted}),id);
 }
 async function inspectPost(c,signal,jobId='') {
   if(await isReviewCurrent(c)) {
@@ -87,8 +89,13 @@ async function recover() {
 const boot = recover();
 
 async function exec(tabId, command, frameId) {
-  const results = await chrome.scripting.executeScript({target:{tabId,...(frameId === undefined ? {allFrames:true}:{frameIds:[frameId]})},func:naverEditor,args:[command]});
-  return results;
+  const started=Date.now(),meta={op:command.op,tabId,frameId};
+  await log('info','EDITOR_CALL',JSON.stringify(meta),command.jobId);
+  try {
+    const results = await chrome.scripting.executeScript({target:{tabId,...(frameId === undefined ? {allFrames:true}:{frameIds:[frameId]})},func:naverEditor,args:[command]});
+    await log('info','EDITOR_RESULT',JSON.stringify({...meta,elapsedMs:Date.now()-started,frames:results.map(r=>({frameId:r.frameId,result:Object.fromEntries(Object.entries(r.result || {}).filter(([k,v])=>typeof v==='boolean' || typeof v==='number' || ['error','evidence'].includes(k)))}))}),command.jobId);
+    return results;
+  }catch(e){await log('error','EDITOR_ERROR',JSON.stringify({...meta,elapsedMs:Date.now()-started,error:e.message}),command.jobId);throw e;}
 }
 async function editor(job) {
   await alive(job.id);
@@ -247,6 +254,7 @@ async function dispatch(m) {
   }
   await boot;
   switch (m.cmd) {
+    case 'diagnostic': await log('error','UI_ERROR',String(m.message || '').slice(0,3000));return true;
     case 'hello': return true;
     case 'state': {
       const s = await read();
@@ -379,9 +387,17 @@ async function dispatch(m) {
 }
 chrome.runtime.onMessage.addListener((m,sender,reply) => {
   if (sender.id !== chrome.runtime.id || sender.url?.split('?')[0] !== chrome.runtime.getURL('dashboard.html')) return false;
-  dispatch(m).then(data => reply({ok:true,data,version:chrome.runtime.getManifest().version}), async e => {
+  const id=crypto.randomUUID(),started=Date.now(),traced=!['state','hello','tick','diagnostic'].includes(m.cmd);
+  const meta={id,cmd:m.cmd,version:chrome.runtime.getManifest().version,tabId:sender.tab?.id,jobId:m.id};
+  const task=async()=>{
+    if(traced)await log('info','REQUEST_START',JSON.stringify(meta));
+    const data=await dispatch(m);
+    if(traced && m.cmd!=='clear-logs')await log('info','REQUEST_END',JSON.stringify({...meta,elapsedMs:Date.now()-started}));
+    return data;
+  };
+  task().then(data => reply({ok:true,data,version:chrome.runtime.getManifest().version}), async e => {
     const msg = redact(e.message);
-    await log('error','REQUEST',msg).catch(() => {});reply({ok:false,error:msg,code:e.code || 'OPERATION_FAILED',version:chrome.runtime.getManifest().version,...(e.review ? {review:e.review}:{})});
+    await log('error','REQUEST',JSON.stringify({...meta,elapsedMs:Date.now()-started,error:msg,code:e.code})).catch(() => {});reply({ok:false,error:msg,code:e.code || 'OPERATION_FAILED',version:chrome.runtime.getManifest().version,...(e.review ? {review:e.review}:{})});
   });return true;
 });
 chrome.action.onClicked.addListener(() => {void openDashboard().catch(console.error);});

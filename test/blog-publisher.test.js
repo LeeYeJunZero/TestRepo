@@ -1,7 +1,7 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import {normalizeComposer, normalizePost, normalizeBlogId, parseGenerated, durationMs, dueTime, redact, recoverJobs, publicBackup, importDrafts, fingerprint, buildPrompt, validateComposer} from '../extensions/blog-publisher/core.js';
-import {listModels, generate, review} from '../extensions/blog-publisher/api.js';
+import {listModels, generate, review, setApiDiagnostics} from '../extensions/blog-publisher/api.js';
 import {publishedUrl} from '../extensions/blog-publisher/naver.js';
 import {imageType, inspectImage, normalizeImages, MAX_IMAGE_BYTES} from '../extensions/blog-publisher/images.js';
 import {buildLayout, insertMarkerAt} from '../extensions/blog-publisher/layout.js';
@@ -12,6 +12,15 @@ import {DASHBOARD_IDS, checkDashboard, requiredElement} from '../extensions/blog
 
 const c = normalizeComposer({provider:'openai',model:'text-model',keywords:'대원외고 영어',topic:'구문 분석',persona:'친절한 학습 코치',title:'제목',body:'본문',tags:['영어']});
 const response = data => new Response(JSON.stringify(data),{status:200,headers:{'Content-Type':'application/json'}});
+test('API 진단은 요청 연결 ID·시간을 남기고 키·본문을 제외',async()=>{
+  const events=[];setApiDiagnostics((step,data)=>events.push({step,...data}));
+  try {
+    await generate({...c,body:'private-body',topic:'private-topic'},'private-api-key',null,async()=>response({output:[{content:[{type:'output_text',text:'{"title":"title","body":"result-private"}'}]}]}));
+    assert.equal(events[0].step,'API_START');assert.equal(events[1].step,'API_END');assert.equal(events[0].id,events[1].id);
+    assert.ok(events[1].elapsedMs>=0);
+    for(const secret of ['private-body','private-topic','private-api-key','result-private'])assert.ok(!JSON.stringify(events).includes(secret));
+  }finally{setApiDiagnostics(()=>{});}
+});
 
 test('대시보드 실행은 구버전 탭을 보존하고 현재 버전만 재사용',async()=>{
   const base='chrome-extension://test/dashboard.html',url=`${base}?v=${CLIENT_VERSION}`,calls=[];

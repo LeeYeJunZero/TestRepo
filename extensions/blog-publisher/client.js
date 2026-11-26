@@ -1,6 +1,6 @@
 import {redact} from './core.js';
 
-export const CLIENT_VERSION='1.3.10';
+export const CLIENT_VERSION='1.3.11';
 export async function openDashboard(browser=globalThis.chrome) {
   const base=browser.runtime.getURL('dashboard.html');
   const url=`${base}?v=${encodeURIComponent(browser.runtime.getManifest().version)}`;

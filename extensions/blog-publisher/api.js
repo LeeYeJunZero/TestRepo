@@ -1,5 +1,7 @@
 import {PROVIDERS, buildPrompt, parseGenerated, redact} from './core.js';
 import {buildReviewPrompt, validateReviewInput, parseReviewReply} from './review.js';
+let diagnostic=async()=>{};
+export function setApiDiagnostics(fn){diagnostic=async(step,data)=>{try{await fn(step,data);}catch{}};}
 
 export class ApiError extends Error {
   constructor(message, retryable = false) { super(message); this.retryable = retryable; }
@@ -34,13 +36,21 @@ async function requestOnce(provider, key, path, body, signal, fetcher = fetch) {
   return data;
 }
 async function request(provider,key,path,body,signal,fetcher=fetch) {
+  const id=crypto.randomUUID(),started=Date.now();
+  const meta={id,provider,endpoint:path.split('?')[0],model:body?.model || (provider==='gemini' ? path.split('/')[2]?.split(':')[0] : ''),operation:JSON.stringify(body || {}).includes('TITLE_BODY_REVIEW') ? 'review':body ? 'generate':'models',requestChars:JSON.stringify(body || {}).length};
   const deadline=AbortSignal.timeout(60000),combined=signal ? AbortSignal.any([signal,deadline]):deadline;
-  try{return await requestOnce(provider,key,path,body,combined,fetcher);}
-  catch(e){
-    if(e.status!==503 || signal?.aborted)throw e;
-    await new Promise(resolve=>setTimeout(resolve,1000));
-    if(signal?.aborted)throw new ApiError('작업을 중단했습니다.');
-    return requestOnce(provider,key,path,body,combined,fetcher);
+  for(let attempt=1;attempt<=2;attempt++) {
+    await diagnostic('API_START',{...meta,attempt});
+    try {
+      const result=await requestOnce(provider,key,path,body,combined,fetcher);
+      await diagnostic('API_END',{...meta,attempt,elapsedMs:Date.now()-started,responseChars:JSON.stringify(result).length});return result;
+    }catch(e){
+      await diagnostic('API_ERROR',{...meta,attempt,elapsedMs:Date.now()-started,status:e.status || null,error:redact(e.message,[key]),retryable:e.retryable});
+      if(attempt===2 || e.status!==503 || signal?.aborted)throw e;
+      await diagnostic('API_RETRY',{...meta,delayMs:1000});
+      await new Promise(resolve=>setTimeout(resolve,1000));
+      if(signal?.aborted)throw new ApiError('작업을 중단했습니다.');
+    }
   }
 }
 export async function listModels(provider, key, fetcher = fetch) {

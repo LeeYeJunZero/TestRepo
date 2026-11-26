@@ -23,6 +23,7 @@ function notify(msg,error=false) {
   clearTimeout(timerNotice);timerNotice = setTimeout(() => {if(notice.isConnected)notice.hidden=true;},error ? 15000:7000);
 }
 function handleError(error) {
+  void requestMessage('diagnostic',{message: String(error?.stack || error?.message || error).split(document.getElementById('apiKey')?.value || '\u0000').join('[입력 키 숨김]')}).catch(()=>{});
   if(error instanceof DashboardLayoutError){halted=true;intervals.forEach(clearInterval);clearTimeout(timerNotice);showRecovery(error.message,document,{images:attachments});return;}
   notify(error.message || String(error),true);
 }
@@ -313,7 +314,7 @@ $('importFile').addEventListener('change',async () => {
 });
 bind('exportLogs',() => {
   const safe = v => {let s=String(v??'');if (/^\s*[=+\-@]|^[\t\r]/.test(s)) s="'"+s;return '"'+s.replaceAll('"','""')+'"';};
-  const rows=[['시각','수준','단계','작업 ID','내용'],...filteredLogs().map(l=>[date(l.at),l.level,l.step,l.jobId,l.message])];
+  const rows=[['시각','수준','단계','작업 ID','내용'],...state.logs.map(l=>[new Date(l.at).toISOString(),l.level,l.step,l.jobId,l.message])];
   download('블로그스튜디오_상세로그.csv','\ufeff'+rows.map(r=>r.map(safe).join(',')).join('\r\n'),'text/csv;charset=utf-8');
 });
 bind('clearLogs',async () => {await send('clear-logs');await refresh();});
